@@ -1,0 +1,79 @@
+# macOS system files
+.DS_Store
+
+# Python compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+env/
+venv/
+.venv/
+ENV/
+venv.bak/
+
+# PyCharm specific files
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# Byte-compiled / optimized / DLL files
+*.pyc
+*.pyo
+*.pyd
+
+# Test coverage reports
+.coverage
+.tox/
+.nox/
+
+# Logs and local data
+*.log
+*.sqlite3
+*.pot
+*.pid
+*.seed
+*.cover
+*.pdb
+*.pyre/
+profile_default/
+
+# Unit test / coverage reports
+htmlcov/
+.coverage
+.cache
+.pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Environment variables and secrets (optional, for safety)
+.env
+.env.*
+.secret

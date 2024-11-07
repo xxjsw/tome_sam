@@ -4,6 +4,9 @@
 ## data loader
 from __future__ import print_function, division
 
+from dataclasses import dataclass
+from typing import Optional, List, Tuple, Any
+
 import numpy as np
 import random
 from copy import deepcopy
@@ -18,77 +21,79 @@ from torchvision.transforms.functional import normalize
 import torch.nn.functional as F
 from torch.utils.data.distributed import DistributedSampler
 
+### main modification: one dataset instead of a list of dataset, with type hint and remove unnecessary
+### dictionary storages
+
 
 #### --------------------- dataloader online ---------------------####
 
-def get_im_gt_name_dict(datasets, flag='valid'):
+@dataclass
+class ReadDatasetInput:
+    name: str
+    im_dir: str
+    gt_dir: Optional[str] # Ground truth directory may be empty
+    im_ext: str
+    gt_ext: str
+
+@dataclass
+class ReadDatasetOutput:
+    name: str
+    im_path: List[str]
+    gt_path: List[str]
+    im_ext: str
+    gt_ext: str
+
+
+def get_im_gt_name_dict(dataset: ReadDatasetInput, flag='valid') -> ReadDatasetOutput:
     print("------------------------------", flag, "--------------------------------")
-    name_im_gt_list = []
 
-    for i in range(len(datasets)):
-        print("--->>>", flag, " dataset ", i, "/", len(datasets), " ", datasets[i]["name"], "<<<---")
-        tmp_im_list, tmp_gt_list = [], []
-        tmp_im_list = glob(datasets[i]["im_dir"] + os.sep + '*' + datasets[i]["im_ext"])
-        print('-im-', datasets[i]["name"], datasets[i]["im_dir"], ': ', len(tmp_im_list))
+    print("--->>>", "dataset: ", dataset.name, "<<<---")
+    tmp_im_list = glob(dataset.im_dir + os.sep + '*' + dataset.im_ext)
+    print('-im-', dataset.name, dataset.im_dir, ': ', len(tmp_im_list))
 
-        if (datasets[i]["gt_dir"] == ""):
-            print('-gt-', datasets[i]["name"], datasets[i]["gt_dir"], ': ', 'No Ground Truth Found')
-            tmp_gt_list = []
-        else:
-            tmp_gt_list = [
-                datasets[i]["gt_dir"] + os.sep + x.split(os.sep)[-1].split(datasets[i]["im_ext"])[0] + datasets[i][
-                    "gt_ext"] for x in tmp_im_list]
-            print('-gt-', datasets[i]["name"], datasets[i]["gt_dir"], ': ', len(tmp_gt_list))
+    if dataset.gt_dir == "":
+        print('-gt-', dataset.name, dataset.gt_dir, ': ', 'No Ground Truth Found')
+        tmp_gt_list = []
+    else:
+        tmp_gt_list = [
+            dataset.gt_dir + os.sep + x.split(os.sep)[-1].split(dataset.im_ext)[0] +
+            dataset.gt_ext for x in tmp_im_list]
+        print('-gt-', dataset.name, dataset.gt_dir, ': ', len(tmp_gt_list))
 
-        name_im_gt_list.append({"dataset_name": datasets[i]["name"],
-                                "im_path": tmp_im_list,
-                                "gt_path": tmp_gt_list,
-                                "im_ext": datasets[i]["im_ext"],
-                                "gt_ext": datasets[i]["gt_ext"]})
-
-    return name_im_gt_list
+    return ReadDatasetOutput(name=dataset.name,
+                             im_path=tmp_im_list,
+                             gt_path=tmp_gt_list,
+                             im_ext=dataset.im_ext,
+                             gt_ext=dataset.gt_ext)
 
 
-def create_dataloaders(name_im_gt_list, my_transforms=[], batch_size=1, training=False):
-    gos_dataloaders = []
-    gos_datasets = []
-
-    if (len(name_im_gt_list) == 0):
-        return gos_dataloaders, gos_datasets
+def create_dataloaders(name_im_gt_path: ReadDatasetOutput,
+                       my_transforms: List= None,
+                       batch_size=1,
+                       training=False) -> tuple[DataLoader, Dataset]:
 
     num_workers_ = 1
-    if (batch_size > 1):
+    if batch_size > 1:
         num_workers_ = 2
-    if (batch_size > 4):
+    if batch_size > 4:
         num_workers_ = 4
-    if (batch_size > 8):
+    if batch_size > 8:
         num_workers_ = 8
 
     if training:
-        for i in range(len(name_im_gt_list)):
-            gos_dataset = OnlineDataset([name_im_gt_list[i]], transform=transforms.Compose(my_transforms))
-            gos_datasets.append(gos_dataset)
-
-        gos_dataset = ConcatDataset(gos_datasets)
+        gos_dataset = OnlineDataset([name_im_gt_path], transform=transforms.Compose(my_transforms))
         sampler = DistributedSampler(gos_dataset)
         batch_sampler_train = torch.utils.data.BatchSampler(
             sampler, batch_size, drop_last=True)
-        dataloader = DataLoader(gos_dataset, batch_sampler=batch_sampler_train, num_workers=num_workers_)
-
-        gos_dataloaders = dataloader
-        gos_datasets = gos_dataset
+        gos_dataloader = DataLoader(gos_dataset, batch_sampler=batch_sampler_train, num_workers=num_workers_)
 
     else:
-        for i in range(len(name_im_gt_list)):
-            gos_dataset = OnlineDataset([name_im_gt_list[i]], transform=transforms.Compose(my_transforms),
-                                        eval_ori_resolution=True)
-            sampler = DistributedSampler(gos_dataset, shuffle=False)
-            dataloader = DataLoader(gos_dataset, batch_size, sampler=sampler, drop_last=False, num_workers=num_workers_)
+        gos_dataset = OnlineDataset([name_im_gt_path], transform=transforms.Compose(my_transforms),
+                                    eval_ori_resolution=True)
+        sampler = DistributedSampler(gos_dataset, shuffle=False)
+        gos_dataloader = DataLoader(gos_dataset, batch_size, sampler=sampler, drop_last=False, num_workers=num_workers_)
 
-            gos_dataloaders.append(dataloader)
-            gos_datasets.append(gos_dataset)
-
-    return gos_dataloaders, gos_datasets
+    return gos_dataloader, gos_dataset
 
 
 class RandomHFlip(object):
@@ -207,30 +212,25 @@ class LargeScaleJitter(object):
 
 
 class OnlineDataset(Dataset):
-    def __init__(self, name_im_gt_list, transform=None, eval_ori_resolution=False):
+    def __init__(self, name_im_gt_path: ReadDatasetOutput, transform=None, eval_ori_resolution=False):
 
         self.transform = transform
         self.dataset = {}
-        ## combine different datasets into one
-        dataset_names = []
-        dt_name_list = []  # dataset name per image
-        im_name_list = []  # image name
-        im_path_list = []  # im path
-        gt_path_list = []  # gt path
-        im_ext_list = []  # im ext
-        gt_ext_list = []  # gt ext
-        for i in range(0, len(name_im_gt_list)):
-            dataset_names.append(name_im_gt_list[i]["dataset_name"])
-            # dataset name repeated based on the number of images in this dataset
-            dt_name_list.extend([name_im_gt_list[i]["dataset_name"] for x in name_im_gt_list[i]["im_path"]])
-            im_name_list.extend(
-                [x.split(os.sep)[-1].split(name_im_gt_list[i]["im_ext"])[0] for x in name_im_gt_list[i]["im_path"]])
-            im_path_list.extend(name_im_gt_list[i]["im_path"])
-            gt_path_list.extend(name_im_gt_list[i]["gt_path"])
-            im_ext_list.extend([name_im_gt_list[i]["im_ext"] for x in name_im_gt_list[i]["im_path"]])
-            gt_ext_list.extend([name_im_gt_list[i]["gt_ext"] for x in name_im_gt_list[i]["gt_path"]])
 
-        self.dataset["data_name"] = dt_name_list
+        im_name_list = []
+        im_path_list = []
+        gt_path_list = []
+        im_ext_list = []
+        gt_ext_list = []
+
+        im_name_list.extend(
+                [x.split(os.sep)[-1].split(name_im_gt_path.im_ext)[0] for x in name_im_gt_path.im_path])
+        im_path_list.extend(name_im_gt_path.im_path)
+        gt_path_list.extend(name_im_gt_path.gt_path)
+        im_ext_list.extend([name_im_gt_path.im_ext for x in name_im_gt_path.im_path])
+        gt_ext_list.extend([name_im_gt_path.gt_ext for x in name_im_gt_path.gt_path])
+
+
         self.dataset["im_name"] = im_name_list
         self.dataset["im_path"] = im_path_list
         self.dataset["ori_im_path"] = deepcopy(im_path_list)

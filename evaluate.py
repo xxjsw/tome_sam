@@ -12,6 +12,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from segment_anything.utils.transforms import ResizeLongestSide
 from tome_sam.build_tome_sam import tome_sam_model_registry
+from tome_sam.utils.dataloader import ReadDatasetInput
 
 
 def prepare_image(image, transform, device):
@@ -180,7 +181,7 @@ def evaluate(args: EvaluateArgs = None):
     model_type = "vit_b"
     device = "mps"
 
-    dataset = 'DIS5K/DIS-VD'
+    dataset = 'data/DIS5K/DIS-VD'
     filenames = select_files_from_dataset(dataset)
 
     encoder_depth = 12
@@ -250,8 +251,47 @@ def get_args_parser():
     return parser.parse_args()
 
 
+# valid set
+dataset_coift_val = ReadDatasetInput(
+    name="COIFT",
+    im_dir="./data/thin_object_detection/COIFT/images",
+    gt_dir="./data/thin_object_detection/COIFT/masks",
+    im_ext=".jpg",
+    gt_ext=".png"
+)
+
+dataset_hrsod_val = ReadDatasetInput(
+    name="HRSOD",
+    im_dir="./data/thin_object_detection/HRSOD/images",
+    gt_dir="./data/thin_object_detection/HRSOD/masks_max255",
+    im_ext=".jpg",
+    gt_ext=".png"
+)
+
+dataset_thin_val = ReadDatasetInput(
+    name="ThinObject5k-TE",
+    im_dir="./data/thin_object_detection/ThinObject5K/images_test",
+    gt_dir="./data/thin_object_detection/ThinObject5K/masks_test",
+    im_ext=".jpg",
+    gt_ext=".png"
+)
+
+dataset_dis_val = ReadDatasetInput(
+    name="DIS5K-VD",
+    im_dir="./data/DIS5K/DIS-VD/im",
+    gt_dir="./data/DIS5K/DIS-VD/gt",
+    im_ext=".jpg",
+    gt_ext=".png"
+)
+
+dataset_name_mapping = {
+    "dis": dataset_dis_val,
+    "thin": dataset_thin_val,
+    "hrsod": dataset_hrsod_val,
+    "coift": dataset_coift_val
+}
+
 if __name__ == "__main__":
-    # args = get_args_parser()
-    mask_ious_diff_layers, boundary_ious_diff_layers = evaluate()
-    print("mask_ious", mask_ious_diff_layers)
-    print("boundary_ious", boundary_ious_diff_layers)
+    if __name__ == "__main__":
+        args = get_args_parser()
+        evaluate()

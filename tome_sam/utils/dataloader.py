@@ -5,7 +5,7 @@
 from __future__ import print_function, division
 
 from dataclasses import dataclass
-from typing import Optional, List, Tuple, Any
+from typing import Optional, List
 
 import numpy as np
 import random
@@ -15,14 +15,14 @@ import os
 from glob import glob
 
 import torch
-from torch.utils.data import Dataset, DataLoader, ConcatDataset
-from torchvision import transforms, utils
+from torch.utils.data import Dataset, DataLoader, RandomSampler
+from torchvision import transforms
 from torchvision.transforms.functional import normalize
 import torch.nn.functional as F
-from torch.utils.data.distributed import DistributedSampler
 
-### main modification: one dataset instead of a list of dataset, with type hint and remove unnecessary
-### dictionary storages
+
+### main modification: one dataset instead of a list of dataset, with type hint, remove unnecessary
+### dictionary storages, remove distributed settings
 
 
 #### --------------------- dataloader online ---------------------####
@@ -66,13 +66,12 @@ def get_im_gt_name_dict(dataset: ReadDatasetInput, flag='valid') -> ReadDatasetO
                              im_ext=dataset.im_ext,
                              gt_ext=dataset.gt_ext)
 
-
 def create_dataloaders(name_im_gt_path: ReadDatasetOutput,
                        my_transforms: List= None,
                        batch_size=1,
                        training=False) -> tuple[DataLoader, Dataset]:
 
-    num_workers_ = 1
+    num_workers_ = 0
     if batch_size > 1:
         num_workers_ = 2
     if batch_size > 4:
@@ -81,16 +80,16 @@ def create_dataloaders(name_im_gt_path: ReadDatasetOutput,
         num_workers_ = 8
 
     if training:
-        gos_dataset = OnlineDataset([name_im_gt_path], transform=transforms.Compose(my_transforms))
-        sampler = DistributedSampler(gos_dataset)
+        gos_dataset = OnlineDataset(name_im_gt_path, transform=transforms.Compose(my_transforms))
+        sampler = RandomSampler(gos_dataset)
         batch_sampler_train = torch.utils.data.BatchSampler(
             sampler, batch_size, drop_last=True)
         gos_dataloader = DataLoader(gos_dataset, batch_sampler=batch_sampler_train, num_workers=num_workers_)
 
     else:
-        gos_dataset = OnlineDataset([name_im_gt_path], transform=transforms.Compose(my_transforms),
+        gos_dataset = OnlineDataset(name_im_gt_path, transform=transforms.Compose(my_transforms),
                                     eval_ori_resolution=True)
-        sampler = DistributedSampler(gos_dataset, shuffle=False)
+        sampler = RandomSampler(gos_dataset)
         gos_dataloader = DataLoader(gos_dataset, batch_size, sampler=sampler, drop_last=False, num_workers=num_workers_)
 
     return gos_dataloader, gos_dataset
@@ -214,6 +213,7 @@ class LargeScaleJitter(object):
 class OnlineDataset(Dataset):
     def __init__(self, name_im_gt_path: ReadDatasetOutput, transform=None, eval_ori_resolution=False):
 
+        # print("name_im_gt_path", name_im_gt_path)
         self.transform = transform
         self.dataset = {}
 

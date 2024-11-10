@@ -485,7 +485,7 @@ def masks_noise(masks):
 
 def mask_iou(pred_label, label):
     '''
-    calculate mask iou for pred_label and gt_label
+    calculate mask iou for pred_label and gt_label(C, H, W)
     '''
 
     pred_label = (pred_label > 0)[0].int()

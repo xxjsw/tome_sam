@@ -84,13 +84,15 @@ def create_dataloaders(name_im_gt_path: ReadDatasetOutput,
         sampler = RandomSampler(gos_dataset)
         batch_sampler_train = torch.utils.data.BatchSampler(
             sampler, batch_size, drop_last=True)
-        gos_dataloader = DataLoader(gos_dataset, batch_sampler=batch_sampler_train, num_workers=num_workers_)
+        gos_dataloader = DataLoader(gos_dataset, batch_sampler=batch_sampler_train,
+                                    num_workers=num_workers_, pin_memory=False, persistent_workers=False)
 
     else:
         gos_dataset = OnlineDataset(name_im_gt_path, transform=transforms.Compose(my_transforms),
                                     eval_ori_resolution=True)
         sampler = RandomSampler(gos_dataset)
-        gos_dataloader = DataLoader(gos_dataset, batch_size, sampler=sampler, drop_last=False, num_workers=num_workers_)
+        gos_dataloader = DataLoader(gos_dataset, batch_size, sampler=sampler, drop_last=False,
+                                    num_workers=num_workers_, pin_memory=False, persistent_workers=False)
 
     return gos_dataloader, gos_dataset
 

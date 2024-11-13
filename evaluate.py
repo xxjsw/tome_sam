@@ -1,15 +1,12 @@
-import os
-from functools import partial
+
 import random
 from typing import Tuple, List
 
-import cv2
 import torch
 import torch.nn.functional as F
 import argparse
 from dataclasses import dataclass
 import numpy as np
-from fontTools.misc.iterTools import batched
 
 from tome_sam.build_tome_sam import tome_sam_model_registry
 from tome_sam.utils import misc
@@ -17,27 +14,26 @@ from tome_sam.utils.dataloader import ReadDatasetInput, get_im_gt_name_dict, cre
 
 
 
-def compute_iou(preds, target):
-    assert target.shape[1] == 1, 'only support one mask per image now'
-    if(preds.shape[2]!=target.shape[2] or preds.shape[3]!=target.shape[3]):
-        postprocess_preds = F.interpolate(preds, size=target.size()[2:], mode='bilinear', align_corners=False)
-    else:
-        postprocess_preds = preds
-    iou = 0
-    for i in range(0,len(preds)):
-        iou = iou + misc.mask_iou(postprocess_preds[i],target[i])
-    return iou / len(preds)
+def compute_iou_and_boundary_iou(preds, target) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    @param preds: torch.Tensor(Batch_size, masks per image, H, W)
+    @param target: torch.Tensor(Batch_size, masks per image, H, W)
 
-def compute_boundary_iou(preds, target):
+    Return:
+    (mask_iou, boundary_iou): Tuple[torch.Tensor(float), torch.Tensor(float)]
+    """
     assert target.shape[1] == 1, 'only support one mask per image now'
-    if(preds.shape[2]!=target.shape[2] or preds.shape[3]!=target.shape[3]):
+    if preds.shape[2]!=target.shape[2] or preds.shape[3]!=target.shape[3]:
         postprocess_preds = F.interpolate(preds, size=target.size()[2:], mode='bilinear', align_corners=False)
     else:
         postprocess_preds = preds
-    iou = 0
+    ious = 0
+    boundary_ious = 0
     for i in range(0,len(preds)):
-        iou = iou + misc.boundary_iou(target[i],postprocess_preds[i])
-    return iou / len(preds)
+        ious = ious + misc.mask_iou(postprocess_preds[i],target[i])
+        boundary_ious = boundary_ious + misc.boundary_iou(target[i], postprocess_preds[i])
+    return (ious / len(preds)).item(), (boundary_ious / len(preds)).item()
+
 
 @dataclass
 class EvaluateArgs:
@@ -95,7 +91,7 @@ def evaluate(args: EvaluateArgs = None):
     metric_logger = misc.MetricLogger(delimiter="  ")
     print(f"valid dataloader length: {len(valid_dataloader)}")
 
-    for data_val in metric_logger.log_every(valid_dataloader, 1000):
+    for data_val in metric_logger.log_every(valid_dataloader, 10):
         imidx, inputs, labels, shapes, labels_ori = data_val["imidx"], data_val["image"], data_val["label"], data_val["shape"], data_val["ori_label"]
 
         inputs = inputs.to(device)
@@ -117,18 +113,18 @@ def evaluate(args: EvaluateArgs = None):
             batched_input.extend([dict_input])
 
         with torch.no_grad():
-            batched_output = tome_sam(batched_input, multimask_output=args.multiple_masks)
+            # batched output - list([dict(['masks', 'iou_predictions', 'low_res_logits'])])
+            # masks - (image=1, masks per image, H, W)
+            batched_output = tome_sam(batched_input, multimask_output=False)
 
-        pred_masks = torch.tensor([output['masks'].cpu().numpy() for output in batched_output])
-        mask_iou = compute_iou(pred_masks, labels_ori)
-        boundary_iou = compute_boundary_iou(pred_masks, labels_ori)
-
-        loss_dict = {"mask_iou" + mask_iou, "boundary_iou" + boundary_iou}
+        pred_masks = torch.tensor(np.array([output['masks'][0].cpu() for
+                                            output in batched_output])).float().to(device)
+        mask_iou, boundary_iou = compute_iou_and_boundary_iou(pred_masks, labels_ori)
+        loss_dict = {"mask_iou": mask_iou, "boundary_iou": boundary_iou}
         loss_dict_reduced = misc.reduce_dict(loss_dict)
         metric_logger.update(**loss_dict_reduced)
 
     print('============================')
-    # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
     resstat = {k: meter.global_avg for k, meter in metric_logger.meters.items() if meter.count > 0}

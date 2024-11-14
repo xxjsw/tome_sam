@@ -223,15 +223,17 @@ class EfficientAttention(Attention):
         B, H, W, _ = x.shape
         # X - (B * nHeads, N, C)
         x = x.view(B, H, W, self.num_heads, -1).permute(0, 3, 1, 2, 4).contiguous().view(B*self.num_heads, H*W, -1)
-        print('before merge: ', x.shape)
+        print('1: ', x.shape)
         # only do token merging once on x before projecting onto q, k, v
+        print(f"x: {x.shape}, w: {W}, h: {H}, r: {int(H*W * self.tome_cfg['q_mode']['q_r'])}, "
+              f"sx:{self.tome_cfg['q_mode']['q_sx']}, sy:{self.tome_cfg['q_mode']['q_sy']}")
         x_merge, x_unmerge = bipartite_soft_matching_random2d(
             metric=x, w=W, h=H,
             r=int(H*W * self.tome_cfg['q_mode']['q_r']),
             sx=self.tome_cfg['q_mode']['q_sx'], sy=self.tome_cfg['q_mode']['q_sy'],
             no_rand=True
         )
-
+        print('2: ', x.shape)
         x = x_merge(x)
 
         print('after merge: ', x.shape)

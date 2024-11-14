@@ -4,6 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 import math
+from xml.etree.ElementTree import XMLParser
 
 import torch
 import torch.nn as nn
@@ -218,12 +219,27 @@ class EfficientAttention(Attention):
         self.tome_cfg = tome_
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # X - (B, H, W, C * nHeads)
         B, H, W, _ = x.shape
+        # X - (B * nHeads, N, C)
+        x = x.view(B, H, W, self.num_heads, -1).permute(0, 3, 1, 2, 4).contiguous().view(B*self.num_heads, H*W, -1)
+        print('before merge: ', x.shape)
+        # only do token merging once on x before projecting onto q, k, v
+        x_merge, x_unmerge = bipartite_soft_matching_random2d(
+            metric=x, w=W, h=H,
+            r=int(H*W * self.tome_cfg['q_mode']['q_r']),
+            sx=self.tome_cfg['q_mode']['q_sx'], sy=self.tome_cfg['q_mode']['q_sy'],
+            no_rand=True
+        )
+
+        x = x_merge(x)
+
+        print('after merge: ', x.shape)
+
         # qkv with shape (3, B, nHead, H * W, C)
         qkv = self.qkv(x).reshape(B, H * W, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
         # q, k, v with shape (B * nHead, H * W, C)
         q, k, v = qkv.reshape(3, B * self.num_heads, H * W, -1).unbind(0)
-
         # Apply token merging
         B_times_num_heads, N, C = q.shape
         assert math.isqrt(N) ** 2 == N

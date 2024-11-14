@@ -267,6 +267,7 @@ class EfficientAttention(Attention):
         q_h = N
         q_w = 1
 
+        # TODO: check the correctness of this relative position after token merging.
         if self.use_rel_pos:
             attn = add_decomposed_rel_pos(attn, q, self.rel_pos_h, self.rel_pos_w, (q_h, q_w), (k_h, k_w))
 

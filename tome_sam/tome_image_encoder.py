@@ -236,63 +236,19 @@ class EfficientAttention(Attention):
 
         print('after merge: ', x.shape)
 
+        B, H, W, _ = x.shape
         # qkv with shape (3, B, nHead, H * W, C)
         qkv = self.qkv(x).reshape(B, H * W, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
         # q, k, v with shape (B * nHead, H * W, C)
         q, k, v = qkv.reshape(3, B * self.num_heads, H * W, -1).unbind(0)
-        # Apply token merging
-        B_times_num_heads, N, C = q.shape
-        assert math.isqrt(N) ** 2 == N
-        w_ = int(math.sqrt(N))
-        h_ = w_
-
-        # BSM on q
-        q_merge, q_unmerge = bipartite_soft_matching_random2d(
-            metric=q, w=w_, h=h_,
-            r=int(q.size()[1] * self.tome_cfg['q_mode']['q_r']),
-            sx=self.tome_cfg['q_mode']['q_sx'], sy=self.tome_cfg['q_mode']['q_sy'],
-            no_rand=True
-        )
-        q = q_merge(q)
-
-        # BSM on k
-        k_merge, k_unmerge = bipartite_soft_matching_random2d(
-            metric=k, w=w_, h=h_,
-            r=int(k.size()[1] * self.tome_cfg['kv_mode']['kv_r']),
-            sx=self.tome_cfg['kv_mode']['kv_sx'], sy=self.tome_cfg['kv_mode']['kv_sy'],
-            no_rand=True
-        )
-        k = k_merge(k)
-
-        # BSM on v
-        v_merge, v_unmerge = bipartite_soft_matching_random2d(
-            metric=v, w=w_, h=h_,
-            r=int(v.size()[1] * self.tome_cfg['kv_mode']['kv_r']),
-            sx=self.tome_cfg['kv_mode']['kv_sx'], sy=self.tome_cfg['kv_mode']['kv_sy'],
-            no_rand=True
-        )
-        v = v_merge(v)
 
         attn = (q * self.scale) @ k.transpose(-2, -1)
 
-        B_times_num_heads, N, C = k.shape
-        k_h = N
-        k_w = 1
-
-        B_times_num_heads, N, C = q.shape
-        q_h = N
-        q_w = 1
-
-        # TODO: check the correctness of this relative position after token merging.
         if self.use_rel_pos:
-            attn = add_decomposed_rel_pos(attn, q, self.rel_pos_h, self.rel_pos_w, (q_h, q_w), (k_h, k_w))
+            attn = add_decomposed_rel_pos(attn, q, self.rel_pos_h, self.rel_pos_w, (H, W), (H, W))
 
         attn = attn.softmax(dim=-1)
-
-        x = (attn @ v)
-        # token unmerge bsm
-        x = q_unmerge(x)
-        x = x.view(B, self.num_heads, H, W, -1).permute(0, 2, 3, 1, 4).reshape(B, H, W, -1)
+        x = (attn @ v).view(B, self.num_heads, H, W, -1).permute(0, 2, 3, 1, 4).reshape(B, H, W, -1)
         x = self.proj(x)
 
         return x

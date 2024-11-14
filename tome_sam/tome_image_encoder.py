@@ -259,11 +259,16 @@ class EfficientAttention(Attention):
 
         attn = (q * self.scale) @ k.transpose(-2, -1)
 
+        B_times_num_heads, N, C = k.shape
+        k_h = N
+        k_w = 1
+
         B_times_num_heads, N, C = q.shape
-        h_ = N
-        w_ = 1
+        q_h = N
+        q_w = 1
+
         if self.use_rel_pos:
-            attn = add_decomposed_rel_pos(attn, q, self.rel_pos_h, self.rel_pos_w, (h_, w_), (h_, w_))
+            attn = add_decomposed_rel_pos(attn, q, self.rel_pos_h, self.rel_pos_w, (q_h, q_w), (k_h, k_w))
 
         attn = attn.softmax(dim=-1)
 

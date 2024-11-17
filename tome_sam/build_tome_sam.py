@@ -1,9 +1,11 @@
 from functools import partial
+from typing import Optional
 
 import torch
 
 from segment_anything.modeling import Sam, PromptEncoder, MaskDecoder, TwoWayTransformer
 from tome_sam.tome_image_encoder import ToMeImageEncoderViT
+from tome_sam.utils.tome_presets import SAMToMeSetting
 
 
 def _build_tome_sam(
@@ -11,8 +13,8 @@ def _build_tome_sam(
         encoder_depth,
         encoder_num_heads,
         encoder_global_attn_indexes,
+        tome_setting: Optional[SAMToMeSetting] = None,
         checkpoint=None,
-        tome_layers=(),
 ):
     prompt_embed_dim = 256
     image_size = 1024
@@ -32,7 +34,7 @@ def _build_tome_sam(
             global_attn_indexes=encoder_global_attn_indexes,
             window_size=14,
             out_chans=prompt_embed_dim,
-            tome_layers=tome_layers,
+            tome_setting=tome_setting,
         ),
         prompt_encoder=PromptEncoder(
             embed_dim=prompt_embed_dim,
@@ -63,39 +65,39 @@ def _build_tome_sam(
     return sam
 
 
-def build_tome_sam_vit_h(checkpoint=None, tome_layers=()):
+def build_tome_sam_vit_h(checkpoint=None, tome_setting: Optional[SAMToMeSetting] = None):
     return _build_tome_sam(
         encoder_embed_dim=1280,
         encoder_depth=32,
         encoder_num_heads=16,
         encoder_global_attn_indexes=[7, 15, 23, 31],
         checkpoint=checkpoint,
-        tome_layers=tome_layers,
+        tome_setting=tome_setting,
     )
 
 
 build_sam = build_tome_sam_vit_h
 
 
-def build_tome_sam_vit_l(checkpoint=None, tome_layers=()):
+def build_tome_sam_vit_l(checkpoint=None, tome_setting: Optional[SAMToMeSetting] = None):
     return _build_tome_sam(
         encoder_embed_dim=1024,
         encoder_depth=24,
         encoder_num_heads=16,
         encoder_global_attn_indexes=[5, 11, 17, 23],
         checkpoint=checkpoint,
-        tome_layers=tome_layers,
+        tome_setting=tome_setting,
     )
 
 
-def build_tome_sam_vit_b(checkpoint=None, tome_layers=()):
+def build_tome_sam_vit_b(checkpoint=None, tome_setting: Optional[SAMToMeSetting] = None):
     return _build_tome_sam(
         encoder_embed_dim=768,
         encoder_depth=12,
         encoder_num_heads=12,
         encoder_global_attn_indexes=[2, 5, 8, 11],
         checkpoint=checkpoint,
-        tome_layers=tome_layers
+        tome_setting=tome_setting
     )
 
 

@@ -1,6 +1,6 @@
 
 import random
-from typing import Tuple, List
+from typing import Tuple, List, Optional
 
 import torch
 import torch.nn.functional as F
@@ -11,7 +11,7 @@ import numpy as np
 from tome_sam.build_tome_sam import tome_sam_model_registry
 from tome_sam.utils import misc
 from tome_sam.utils.dataloader import ReadDatasetInput, get_im_gt_name_dict, create_dataloaders, Resize
-
+from tome_sam.utils.tome_presets import SAMToMeSetting
 
 
 def compute_iou_and_boundary_iou(preds, target) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -47,7 +47,7 @@ class EvaluateArgs:
     batch_size: int
     multiple_masks: bool
     num_masks: int = None
-    tome_layers: Tuple[int, ...] = ()
+    tome_setting: Optional[SAMToMeSetting] = None
 
 
 def evaluate(args: EvaluateArgs = None):
@@ -76,11 +76,11 @@ def evaluate(args: EvaluateArgs = None):
     print(f"--- Valid dataloader with dataset {args.dataset} created ---")
 
     ### Create model with specified arguments ###
-    print(f"--- Create SAM {args.model_type} with token merging in layers {args.tome_layers} ---")
+    print(f"--- Create SAM {args.model_type} with token merging in layers {args.tome_setting} ---")
 
     tome_sam = tome_sam_model_registry[args.model_type](
         checkpoint=args.checkpoint,
-        tome_layers=args.tome_layers,
+        tome_setting=args.tome_setting,
     )
     tome_sam.to(device)
     tome_sam.eval()
@@ -158,6 +158,7 @@ def get_args_parser():
     parser.add_argument('--num_masks', type=int, required=True,
                         help='Specify the number of masks to output (only if --multiple_masks is set).')
     # TODO: mode and required parameters
+    # TODO: update this part since it should not be tome_layers anymore
     parser.add_argument('--tome_layers', default=(), type=str)
 
     return parser

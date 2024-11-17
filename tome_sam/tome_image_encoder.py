@@ -9,13 +9,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from typing import Optional, Tuple, Type
+from typing import Optional, Tuple, Type, Dict
 
 from tomesd.merge import bipartite_soft_matching_random2d
 
 from segment_anything.modeling.image_encoder import Attention, ImageEncoderViT
 from .common import LayerNorm2d, MLPBlock
-from .utils import tome_cfg
+from .utils.tome_presets import ViTToMe, SAMToMeSetting
 
 
 # This class and its supporting functions below lightly adapted from the ViTDet backbone available at: https://github.com/facebookresearch/detectron2/blob/main/detectron2/modeling/backbone/vit.py # noqa
@@ -38,7 +38,7 @@ class ToMeImageEncoderViT(ImageEncoderViT):
             rel_pos_zero_init: bool = True,
             window_size: int = 0,
             global_attn_indexes: Tuple[int, ...] = (),
-            tome_layers: Tuple[int, ...] = (),
+            tome_setting: Optional[SAMToMeSetting] = None,
     ) -> None:
         """
         Args:
@@ -57,7 +57,7 @@ class ToMeImageEncoderViT(ImageEncoderViT):
             rel_pos_zero_init (bool): If True, zero initialize relative positional parameters.
             window_size (int): Window size for window attention blocks.
             global_attn_indexes (list): Indexes for blocks using global attention.
-            tome_layers(list): specify which layers to do token merging.
+            tome_setting(Dict[int, ViTToMe]): specify which layers to do token merging and the specific bsm tome parameters
         """
         super().__init__()
         self.img_size = img_size
@@ -76,9 +76,17 @@ class ToMeImageEncoderViT(ImageEncoderViT):
                 torch.zeros(1, img_size // patch_size, img_size // patch_size, embed_dim)
             )
 
+        if tome_setting is None:
+            tome_setting = dict()
+
         self.blocks = nn.ModuleList()
+
         for i in range(depth):
-            tome = True if i in tome_layers else False
+            if i in tome_setting:
+                vit_tome_param = tome_setting[i]
+            else:
+                vit_tome_param = None
+
             block = Block(
                 dim=embed_dim,
                 num_heads=num_heads,
@@ -90,7 +98,7 @@ class ToMeImageEncoderViT(ImageEncoderViT):
                 rel_pos_zero_init=rel_pos_zero_init,
                 window_size=window_size if i not in global_attn_indexes else 0,
                 input_size=(img_size // patch_size, img_size // patch_size),
-                tome=tome
+                tome_setting=vit_tome_param
             )
             self.blocks.append(block)
 
@@ -140,7 +148,7 @@ class Block(nn.Module):
             rel_pos_zero_init: bool = True,
             window_size: int = 0,
             input_size: Optional[Tuple[int, int]] = None,
-            tome: bool = False,
+            tome_setting: ViTToMe = None,
     ) -> None:
         """
         Args:
@@ -156,13 +164,14 @@ class Block(nn.Module):
                 use global attention.
             input_size (tuple(int, int) or None): Input resolution for calculating the relative
                 positional parameter size.
-            tome: whether allow token merging(use EfficientAttention rather than normal Attention)
+            tome_setting: if it is not None, allow token merging(use EfficientAttention rather than normal Attention)
         """
         super().__init__()
         self.norm1 = norm_layer(dim)
-        if tome:
+        if tome_setting:
             self.attn = EfficientAttention(
-                dim,
+                tome_setting=tome_setting,
+                dim=dim,
                 num_heads=num_heads,
                 qkv_bias=qkv_bias,
                 use_rel_pos=use_rel_pos,
@@ -206,16 +215,16 @@ class Block(nn.Module):
 class EfficientAttention(Attention):
     def __init__(
             self,
+            tome_setting: ViTToMe,
             dim: int,
             num_heads: int = 8,
             qkv_bias: bool = True,
             use_rel_pos: bool = False,
             rel_pos_zero_init: bool = True,
             input_size: Optional[Tuple[int, int]] = None,
-            tome_=tome_cfg
     ) -> None:
         super().__init__(dim, num_heads, qkv_bias, use_rel_pos, rel_pos_zero_init, input_size)
-        self.tome_cfg = tome_
+        self.tome_setting = tome_setting
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, H, W, _ = x.shape
@@ -233,8 +242,8 @@ class EfficientAttention(Attention):
         # BSM on q
         q_merge, q_unmerge = bipartite_soft_matching_random2d(
             metric=q, w=w_, h=h_,
-            r=int(q.size()[1] * self.tome_cfg['q_mode']['q_r']),
-            sx=self.tome_cfg['q_mode']['q_sx'], sy=self.tome_cfg['q_mode']['q_sy'],
+            r=int(q.size()[1] * self.tome_setting.q_mode.r),
+            sx=self.tome_setting.q_mode.sx, sy=self.tome_setting.q_mode.sy,
             no_rand=True
         )
         q = q_merge(q)
@@ -242,8 +251,8 @@ class EfficientAttention(Attention):
         # BSM on k
         k_merge, k_unmerge = bipartite_soft_matching_random2d(
             metric=k, w=w_, h=h_,
-            r=int(k.size()[1] * self.tome_cfg['kv_mode']['kv_r']),
-            sx=self.tome_cfg['kv_mode']['kv_sx'], sy=self.tome_cfg['kv_mode']['kv_sy'],
+            r=int(k.size()[1] * self.tome_setting.kv_mode.r),
+            sx=self.tome_setting.kv_mode.sx, sy=self.tome_setting.kv_mode.sy,
             no_rand=True
         )
         k = k_merge(k)
@@ -251,8 +260,8 @@ class EfficientAttention(Attention):
         # BSM on v
         v_merge, v_unmerge = bipartite_soft_matching_random2d(
             metric=v, w=w_, h=h_,
-            r=int(v.size()[1] * self.tome_cfg['kv_mode']['kv_r']),
-            sx=self.tome_cfg['kv_mode']['kv_sx'], sy=self.tome_cfg['kv_mode']['kv_sy'],
+            r=int(v.size()[1] * self.tome_setting.kv_mode.r),
+            sx=self.tome_setting.kv_mode.sx, sy=self.tome_setting.kv_mode.sy,
             no_rand=True
         )
         v = v_merge(v)

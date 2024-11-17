@@ -13,7 +13,7 @@ class ViTToMe: # settings required for one ViT block
     q_mode: BSMToMe
 
 # key - index of the ViT layer, value - the specific tome settings taken place in this block
-SAMToMeSettings = Dict[int, ViTToMe]
+SAMToMeSetting = Dict[int, ViTToMe]
 
 # bsm_hq
 tome_cfg = {

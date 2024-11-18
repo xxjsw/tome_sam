@@ -1,4 +1,4 @@
-
+import json
 import random
 from typing import Tuple, List, Optional
 
@@ -158,8 +158,12 @@ def get_args_parser():
     parser.add_argument('--num_masks', type=int, required=True,
                         help='Specify the number of masks to output (only if --multiple_masks is set).')
     # TODO: mode and required parameters
-    # TODO: update this part since it should not be tome_layers anymore
-    parser.add_argument('--tome_layers', default=(), type=str)
+    parser.add_argument(
+        "--tome_setting",
+        type=str,
+        default=None,  # Default to None if not provided
+        help="JSON string for ToMe settings (e.g., '{\"0\": {\"kv_mode\": {\"r\": 0.6, \"sx\": 2, \"sy\": 2}, \"q_mode\": {\"r\": 0.8, \"sx\": 4, \"sy\": 4}}, ...}')"
+    )
 
     return parser
 
@@ -168,7 +172,17 @@ def parse_and_convert_args() -> EvaluateArgs:
     parser = get_args_parser()
     args = parser.parse_args()
 
-    tome_layers = tuple(map(int, args.tome_layers.split(','))) if args.tome_layers else ()
+    tome_setting: Optional[SAMToMeSetting] = None
+
+    # Parse the JSON string into a dictionary if provided
+    if args.tome_setting is not None:
+        try:
+            tome_setting = json.loads(args.tome_setting)
+            print("Parsed ToMe Settings:", tome_setting)
+        except json.JSONDecodeError as e:
+            print(f"Error parsing ToMe settings: {e}")
+    else:
+        print("No ToMe settings provided. Proceeding with default behavior.")
 
     if args.multiple_masks and args.num_masks is None:
         parser.error("--num_masks must be specified if --multiple_masks is set.")
@@ -184,7 +198,7 @@ def parse_and_convert_args() -> EvaluateArgs:
         batch_size=int(args.batch_size),
         multiple_masks=args.multiple_masks,
         num_masks=args.num_masks,
-        tome_layers=tome_layers,
+        tome_setting=tome_setting,
     )
 
     return evaluate_args

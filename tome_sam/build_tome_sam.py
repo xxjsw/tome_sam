@@ -2,11 +2,13 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Optional, List
 
+
 import torch
 
 from segment_anything.modeling import Sam, PromptEncoder, MaskDecoder, TwoWayTransformer
 from tome_sam.tome_image_encoder import ToMeImageEncoderViT
 from tome_sam.utils.tome_presets import SAMToMeSetting
+
 
 # Aggregation of SAM image encoder parameters which can be easily accessed by other code snippets
 @dataclass
@@ -58,6 +60,7 @@ SAM_CONFIGS = {
 
 def get_sam_config(model_type: str) -> SAMImageEncoderConfig:
     return SAM_CONFIGS[model_type]
+
 
 
 def _build_tome_sam(

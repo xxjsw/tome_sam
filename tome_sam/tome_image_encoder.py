@@ -263,7 +263,6 @@ class EfficientAttention(Attention):
             sx=self.tome_setting.kv_mode.sx, sy=self.tome_setting.kv_mode.sy,
             no_rand=True
         )
-
         x_kv = kv_merge(x_kv)
         _, Nkv_reduced, _ = x_kv.shape
         # reshape x_kv from (B*nHeads, Nkv_reduced, C) to (B, Nkv_reduced, C*nHeads)

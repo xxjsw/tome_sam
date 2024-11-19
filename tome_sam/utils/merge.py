@@ -1,9 +1,25 @@
-# Adapt from tomesd.merge (https://github.com/dbolya/tomesd/blob/main/tomesd/merge.py), as sam has other parts like
-# relative position embeddings
+# Adapt from tomesd.merge (https://github.com/dbolya/tomesd/blob/main/tomesd/merge.py)
 
 import torch
 from typing import Tuple, Callable
 
+def safe_normalize(x: torch.Tensor, dim: int=-1, eps: float=1e-12):
+    """
+    Safely normalize a tensor by handling zero vectors.
+    Args:
+        x: Input tensor of shape (B, N, C)
+        dim: Dimension along which to normalize
+        eps: epsilon to prevent division by zero
+    Returns:
+        Normalized tensor with same shape as input
+    """
+    norm = x.norm(dim=dim, keepdim=True)
+    zero_mask = (norm < eps).squeeze(dim)
+    norm = norm.clamp(min=eps)
+    x = x / norm
+    x[zero_mask] = 0.0
+
+    return x
 
 def do_nothing(x: torch.Tensor, mode: str = None):
     return x
@@ -88,12 +104,12 @@ def bipartite_soft_matching_random2d(metric: torch.Tensor,
             return src, dst
 
         # Cosine similarity between A and B
-        metric = metric / metric.norm(dim=-1, keepdim=True)
+        metric = safe_normalize(metric, dim=-1)
         a, b = split(metric)
         scores = a @ b.transpose(-1, -2)
-        print('src', a.shape, a)
-        print('dst', b.shape, b)
-        print('scores', scores.shape, scores)
+        # print('src', a.shape, a)
+        # print('dst', b.shape, b)
+        # print('scores', scores.shape, scores)
 
         # Can't reduce more than the # tokens in src
         r = min(a.shape[1], r)
@@ -105,9 +121,9 @@ def bipartite_soft_matching_random2d(metric: torch.Tensor,
         unm_idx = edge_idx[..., r:, :]  # Unmerged Tokens
         src_idx = edge_idx[..., :r, :]  # Merged Tokens
         dst_idx = gather(node_idx[..., None], dim=-2, index=src_idx)
-        print('unm_idx', unm_idx.shape, unm_idx)
-        print('src idx: ', src_idx.shape, src_idx)
-        print('dst idx: ', dst_idx.shape, dst_idx)
+        # print('unm_idx', unm_idx.shape, unm_idx)
+        # print('src idx: ', src_idx.shape, src_idx)
+        # print('dst idx: ', dst_idx.shape, dst_idx)
 
 
     def merge(x: torch.Tensor, mode="mean") -> torch.Tensor:

@@ -1,7 +1,7 @@
 ## TOME SAM: Applying BSM token merging strategy onto Segment Anything Model(SAM)
 
 ### Installation
-Refer to installation steps of the [Segment Anything repository](https://github.com/facebookresearch/segment-anything?tab=readme-ov-file#installation)
+Refer to installation steps of the [Segment Anything repository](https://github.com/facebookresearch/segment-anything?tab=readme-ov-file#installation).
 
 The code requires python>=3.8, as well as pytorch>=1.7 and torchvision>=0.8. Please follow the instructions here to install both PyTorch and TorchVision dependencies. Installing both PyTorch and TorchVision with CUDA support is strongly recommended.
 
@@ -31,7 +31,7 @@ wget https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth
 ```
 
 ### Prepare Dataset
-Refer to dataset preparation from [Segment Anything in high Quality](https://github.com/SysCV/sam-hq/blob/main/train/README.md#1-data-preparation)
+Refer to dataset preparation from [Segment Anything in high Quality](https://github.com/SysCV/sam-hq/blob/main/train/README.md#1-data-preparation).
 Download available datasets from [Hugging Face link](https://huggingface.co/sam-hq-team/sam-hq-training/tree/main/data), and orgaanize the
 dataset with the following structure:
 ```
@@ -51,8 +51,8 @@ tome_sam
 ```
 ### Inference
 `example.py` provides an example of how to run inference with specified token merging setting for each ViT block.
-1. Define the required token merging parameters in a `dict`, where the key represents the layer indexes and its 
-value determines the bsm setting taken place in this layer.
+1. Define the required token merging parameters in a `dict`, where the key represents the exact layer index and its 
+value determines the bsm setting taken place in this ViT block.
 ```
 test_tome_setting: SAMToMeSetting = {
     0: ViTToMe(

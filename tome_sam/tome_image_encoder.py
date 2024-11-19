@@ -12,7 +12,7 @@ import torch.nn.functional as F
 
 from typing import Optional, Tuple, Type, Dict
 
-from tomesd.merge import bipartite_soft_matching_random2d
+from .utils.merge import bipartite_soft_matching_random2d
 
 from segment_anything.modeling.image_encoder import Attention, ImageEncoderViT
 from .common import LayerNorm2d, MLPBlock
@@ -230,14 +230,17 @@ class EfficientAttention(Attention):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # X - (B, H, W, C * nHeads)
         B, H, W, _ = x.shape
+        C = _ // self.num_heads
+
+        print(B, H, W, C)
         # X - (B * nHeads, N, C)
-        x = x.view(B, H, W, self.num_heads, -1).permute(0, 3, 1, 2, 4).contiguous().view(B*self.num_heads, H*W, -1)
+        x = x.reshape(B, H, W, self.num_heads, C).permute(0, 3, 1, 2, 4).reshape(B * self.num_heads, H * W, C)
         print('1: ', x.shape)
         # only do token merging once on x before projecting onto q, k, v
         x_merge, x_unmerge = bipartite_soft_matching_random2d(
             metric=x, w=W, h=H,
-            r=int(H*W * self.tome_cfg['q_mode']['q_r']),
-            sx=self.tome_cfg['q_mode']['q_sx'], sy=self.tome_cfg['q_mode']['q_sy'],
+            r=int(H*W * self.tome_setting.q_mode.r),
+            sx=self.tome_setting.q_mode.sx, sy=self.tome_setting.q_mode.sy,
             no_rand=True
         )
         x = x_merge(x)

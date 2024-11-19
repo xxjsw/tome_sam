@@ -1,257 +1,250 @@
-import os
-from functools import partial
-from typing import Tuple
+import json
+import random
+from typing import Tuple, List, Optional
 
-import cv2
 import torch
-
+import torch.nn.functional as F
 import argparse
 from dataclasses import dataclass
 import numpy as np
 
-import matplotlib.pyplot as plt
-from segment_anything.utils.transforms import ResizeLongestSide
 from tome_sam.build_tome_sam import tome_sam_model_registry
+from tome_sam.utils import misc
+from tome_sam.utils.dataloader import ReadDatasetInput, get_im_gt_name_dict, create_dataloaders, Resize
+from tome_sam.utils.tome_presets import SAMToMeSetting
 
 
-def prepare_image(image, transform, device):
-    image = transform.apply_image(image)
-    image = torch.as_tensor(image, device=device.device)
-    return image.permute(2, 0, 1).contiguous()
-
-
-# General util function to get the boundary of a binary mask.
-# https://gist.github.com/bowenc0221/71f7a02afee92646ca05efeeb14d687d
-def mask_to_boundary(mask, dilation_ratio=0.02):
+def compute_iou_and_boundary_iou(preds, target) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Convert binary mask to boundary mask.
-    :param mask (numpy array, uint8): binary mask
-    :param dilation_ratio (float): ratio to calculate dilation = dilation_ratio * image_diagonal
-    :return: boundary mask (numpy array)
+    @param preds: torch.Tensor(Batch_size, masks per image, H, W)
+    @param target: torch.Tensor(Batch_size, masks per image, H, W)
+
+    Return:
+    (mask_iou, boundary_iou): Tuple[torch.Tensor(float), torch.Tensor(float)]
     """
-    h, w = mask.shape
-    img_diag = np.sqrt(h ** 2 + w ** 2)
-    dilation = int(round(dilation_ratio * img_diag))
-    if dilation < 1:
-        dilation = 1
-    # Pad image so mask truncated by the image border is also considered as boundary.
-    new_mask = cv2.copyMakeBorder(mask, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=0)
-    kernel = np.ones((3, 3), dtype=np.uint8)
-    new_mask_erode = cv2.erode(new_mask, kernel, iterations=dilation)
-    mask_erode = new_mask_erode[1: h + 1, 1: w + 1]
-    # G_d intersects G in the paper.
-    return mask - mask_erode
-
-
-def mask_iou(pred_label: np.ndarray, gt_label: np.ndarray) -> float:
-    """
-    Calculate mask IoU for binary predicted and ground truth labels.
-    """
-    intersection = np.logical_and(pred_label, gt_label).sum()
-    union = np.logical_or(pred_label, gt_label).sum()
-
-    return intersection / union
-
-
-def avg_mask_iou(pred_labels: np.ndarray, gt_labels: np.ndarray) -> float:
-    assert len(pred_labels) == len(gt_labels)
-    ious = []
-    for (pred_label, gt_label) in zip(pred_labels, gt_labels):
-        ious.append(mask_iou(pred_label, gt_label))
-
-    return sum(ious) / len(ious)
-
-
-def boundary_iou(pred_label: np.ndarray, gt_label: np.ndarray, dilation_ratio: float = 0.02) -> float:
-    """
-    Compute boundary IoU between two binary masks by focusing on their edges.
-    """
-    gt_boundary = mask_to_boundary(gt_label, dilation_ratio)
-    dt_boundary = mask_to_boundary(pred_label, dilation_ratio)
-
-    intersection = np.logical_and(gt_boundary, dt_boundary).sum()
-    union = np.logical_or(gt_boundary, dt_boundary).sum()
-
-    return intersection / union
-
-
-def avg_boundary_iou(pred_labels: np.ndarray, gt_labels: np.ndarray) -> float:
-    assert len(pred_labels) == len(gt_labels)
-
-    boundary_ious = []
-    for (pred_label, gt_label) in zip(pred_labels, gt_labels):
-        boundary_ious.append(boundary_iou(pred_label, gt_label))
-
-    return sum(boundary_ious) / len(boundary_ious)
-
-
-def mask_to_box(mask: np.ndarray) -> np.ndarray:
-    """Compute the bounding box around the provided mask.
-    The mask should be in format [H, W] where (H, W) are the spatial dimensions.
-    Returns a numpy array with the box in xyxy format: [x_min, y_min, x_max, y_max].
-    """
-    # get bounding box from mask
-    y_indices, x_indices = np.where(mask > 0)
-    x_min, x_max = np.min(x_indices), np.max(x_indices)
-    y_min, y_max = np.min(y_indices), np.max(y_indices)
-    """
-    # add perturbation to bounding box coordinates
-    H, W = mask.shape
-    x_min = max(0, x_min - np.random.randint(0, 20))
-    x_max = min(W, x_max + np.random.randint(0, 20))
-    y_min = max(0, y_min - np.random.randint(0, 20))
-    y_max = min(H, y_max + np.random.randint(0, 20))
-    """
-    return np.array([x_min, y_min, x_max, y_max])
-
-
-def show_mask(mask, ax, random_color=False):
-    if random_color:
-        color = np.concatenate([np.random.random(3), np.array([0.6])], axis=0)
+    assert target.shape[1] == 1, 'only support one mask per image now'
+    if preds.shape[2]!=target.shape[2] or preds.shape[3]!=target.shape[3]:
+        postprocess_preds = F.interpolate(preds, size=target.size()[2:], mode='bilinear', align_corners=False)
     else:
-        color = np.array([30 / 255, 144 / 255, 255 / 255, 0.6])
-    h, w = mask.shape[-2:]
-    mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
-    ax.imshow(mask_image)
-
-
-def show_points(coords, labels, ax, marker_size=375):
-    pos_points = coords[labels == 1]
-    neg_points = coords[labels == 0]
-    ax.scatter(pos_points[:, 0], pos_points[:, 1], color='green', marker='*', s=marker_size, edgecolor='white',
-               linewidth=1.25)
-    ax.scatter(neg_points[:, 0], neg_points[:, 1], color='red', marker='*', s=marker_size, edgecolor='white',
-               linewidth=1.25)
-
-
-def show_box(box, ax):
-    x0, y0 = box[0], box[1]
-    w, h = box[2] - box[0], box[3] - box[1]
-    ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0, 0, 0, 0), lw=2))
-
-
-def read_mask(file_path: str) -> np.ndarray:
-    mask = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
-    binary_mask = (mask > 128).astype(np.uint8)
-    return binary_mask
-
-
-def select_files_from_dataset(dataset: str, num=20) -> Tuple:
-    gt_folder = os.path.join(dataset, 'gt')
-    # Check if the folders exist and get the file paths
-    files = []
-    if os.path.exists(gt_folder):
-        files = [os.path.splitext(f)[0] for f in os.listdir(gt_folder)]
-        files = files[1: num+1]
-
-    return files
+        postprocess_preds = preds
+    ious = 0
+    boundary_ious = 0
+    for i in range(0,len(preds)):
+        ious = ious + misc.mask_iou(postprocess_preds[i],target[i])
+        boundary_ious = boundary_ious + misc.boundary_iou(target[i], postprocess_preds[i])
+    return (ious / len(preds)).item(), (boundary_ious / len(preds)).item()
 
 
 @dataclass
 class EvaluateArgs:
     dataset: str
-    """
-    dataset
-    |---gt
-    |---im
-    """
     output: str
     model_type: str
     checkpoint: str
     device: str
+    seed: int
+    input_size: List[int]
+    batch_size: int
     multiple_masks: bool
     num_masks: int = None
-    tome_layers: Tuple[int, ] = ()
+    tome_setting: Optional[SAMToMeSetting] = None
 
 
 def evaluate(args: EvaluateArgs = None):
-    """
-    if args.multiple_masks and args.num_masks is None:
-        logging.info('Error: You must specify --num-masks if --multiple-masks is set.')
-        sys.exit(1)
+    seed = args.seed + misc.get_rank()
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
 
-    if args.multiple_masks:
-        pass
+    if args.device == 'cuda' and torch.cuda.is_available():
+        device = torch.device('cuda')
+    elif args.device == 'mps' and torch.backends.mps.is_available():
+        device = torch.device('mps')
     else:
-        pass
-    """
+        device = torch.device('cpu')
 
-    sam_checkpoint = "checkpoints/sam_vit_b_01ec64.pth"
-    model_type = "vit_b"
-    device = "mps"
+    ### Create eval dataloader ###
+    print(f"--- Create valid dataloader with dataset {args.dataset} ---")
+    dataset_info = dataset_name_mapping[args.dataset]
+    valid_im_gt_path = get_im_gt_name_dict(dataset_info, flag='valid')
+    valid_dataloader, valid_dataset = create_dataloaders(valid_im_gt_path,
+                                                         my_transforms=[
+                                                             Resize(args.input_size),
+                                                         ],
+                                                         batch_size=args.batch_size,
+                                                         training=False)
+    print(f"--- Valid dataloader with dataset {args.dataset} created ---")
 
-    dataset = 'DIS5K/DIS-VD'
-    filenames = select_files_from_dataset(dataset)
+    ### Create model with specified arguments ###
+    print(f"--- Create SAM {args.model_type} with token merging in layers {args.tome_setting} ---")
 
-    encoder_depth = 12
+    tome_sam = tome_sam_model_registry[args.model_type](
+        checkpoint=args.checkpoint,
+        tome_setting=args.tome_setting,
+    )
+    tome_sam.to(device)
+    tome_sam.eval()
 
-    mask_ious_diff_layers = []
-    boundary_ious_diff_layers = []
+    ### Start evaluation ###
+    print(f"--- Start evaluation ---")
+    test_stats = {}
+    metric_logger = misc.MetricLogger(delimiter="  ")
+    print(f"valid dataloader length: {len(valid_dataloader)}")
 
-    for layer_i in range(0, encoder_depth+1):
-        sam = tome_sam_model_registry[model_type](checkpoint=sam_checkpoint, tome_layers=(layer_i,))
-        sam.to(device=device, dtype=torch.float32)
-        sam.eval()
+    for data_val in metric_logger.log_every(valid_dataloader, 10):
+        imidx, inputs, labels, shapes, labels_ori = data_val["imidx"], data_val["image"], data_val["label"], data_val["shape"], data_val["ori_label"]
 
-        pred_masks = []
-        gt_masks = []
-        for filename in filenames:
-            image = cv2.imread(f'{dataset}/im/{filename}.jpg')
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            bounding_box = mask_to_box(read_mask(f'{dataset}/gt/{filename}.png'))
-            boxes = torch.tensor(bounding_box, device=sam.device)
+        inputs = inputs.to(device)
+        labels = labels.to(device)
+        labels_ori = labels_ori.to(device)
 
-            resize_transform = ResizeLongestSide(sam.image_encoder.img_size)
+        # (B, C, H, W) -> (B, H, W, C)
+        imgs = inputs.permute(0, 2, 3, 1).cpu().numpy()
 
-            batched_input = [
-                {
-                    'image': prepare_image(image, resize_transform, sam),
-                    'boxes': resize_transform.apply_boxes_torch(boxes, image.shape[:2]),
-                    'original_size': image.shape[:2]
-                },
-            ]
+        labels_box = misc.masks_to_boxes(labels[:, 0, :, :])
+        batched_input = []
 
-            # dict_keys(['masks', 'iou_predictions', 'low_res_logits'])
-            batched_output = sam(batched_input, multimask_output=False)
-            pred_mask = torch.squeeze(batched_output[0]['masks'][0]).cpu().numpy().astype('uint8')
-            pred_masks.append(pred_mask)
-            gt_mask = read_mask(f'{dataset}/gt/{filename}.png')
-            gt_masks.append(gt_mask)
+        for b_i in range(len(imgs)):
+            dict_input = dict()
+            input_image = torch.as_tensor(imgs[b_i].astype(np.uint8), device=device).permute(2, 0, 1).contiguous() # (C, H, W)
+            dict_input['image'] = input_image
+            dict_input['boxes'] = labels_box[b_i: b_i + 1]
+            dict_input['original_size'] = imgs[b_i].shape[:2]
+            batched_input.extend([dict_input])
 
-        mask_iou_ = avg_mask_iou(pred_masks, gt_masks)
-        mask_ious_diff_layers.append(mask_iou_)
-        boundary_iou_ = avg_boundary_iou(pred_masks, gt_masks)
-        boundary_ious_diff_layers.append(boundary_iou_)
-        print(f"Token merging in layer {layer_i}: mask_iou: {mask_iou_}, boundary_iou: {boundary_iou_}")
+        with torch.no_grad():
+            # batched output - list([dict(['masks', 'iou_predictions', 'low_res_logits'])])
+            # masks - (image=1, masks per image, H, W)
+            batched_output = tome_sam(batched_input, multimask_output=False)
 
-    return mask_ious_diff_layers, boundary_ious_diff_layers
+        pred_masks = torch.tensor(np.array([output['masks'][0].cpu() for
+                                            output in batched_output])).float().to(device)
+        mask_iou, boundary_iou = compute_iou_and_boundary_iou(pred_masks, labels_ori)
+        loss_dict = {"mask_iou": mask_iou, "boundary_iou": boundary_iou}
+        loss_dict_reduced = misc.reduce_dict(loss_dict)
+        metric_logger.update(**loss_dict_reduced)
+
+    print('============================')
+    metric_logger.synchronize_between_processes()
+    print("Averaged stats:", metric_logger)
+    resstat = {k: meter.global_avg for k, meter in metric_logger.meters.items() if meter.count > 0}
+    test_stats.update(resstat)
+
+    return test_stats
+
+
+
 
 
 def get_args_parser():
     parser = argparse.ArgumentParser(description="Evaluate accuracy of the segmentation result")
 
-    parser.add_argument('--dataset', type=str, required=True,
-                        help='Path to the dataset on which to run the SAM model')
+    parser.add_argument('--dataset', choices=dataset_name_mapping.keys(), type=str,
+                        required=True, help='Specify one of the available datasets: {}'
+                        .format(", ".join(dataset_name_mapping.keys())))
     parser.add_argument('--output', type=str, required=True,
                         help='Path to the directory where masks and evaluation results will be stored')
-    parser.add_argument('--model-type', choices=['vit_b', 'vit_l', 'vit_h'], default='vit_b',
+    parser.add_argument('--model_type', choices=['vit_b', 'vit_l', 'vit_h'], default='vit_b',
                         help='The type of SAM model to load')
     parser.add_argument('--checkpoint', type=str, required=True,
                         help='The path to the SAM checkpoint to use for mask generation')
     parser.add_argument('--device', type=str, default="mps",
                         help='The device to run generation on.')
-    parser.add_argument('--multiple-masks', action='store_true',
-                        help='Enable multiple mask outputs. Require --num-masks to be specified.')
-    parser.add_argument('--num-masks', type=int, required=True,
-                        help='Specify the number of masks to output (only if --multiple-masks is set).')
+    parser.add_argument('--seed', default=42, type=int)
+    parser.add_argument('--input_size', nargs=2, default=[1024, 1024], type=int)
+    parser.add_argument('--batch_size', default=1, type=int)
+    parser.add_argument('--multiple_masks', action='store_true',
+                        help='Enable multiple mask outputs. Require --num_masks to be specified.')
+    parser.add_argument('--num_masks', type=int, required=True,
+                        help='Specify the number of masks to output (only if --multiple_masks is set).')
     # TODO: mode and required parameters
-    parser.add_argument('--tome-layers', type=str,)
+    parser.add_argument(
+        "--tome_setting",
+        type=str,
+        default=None,  # Default to None if not provided
+        help="JSON string for ToMe settings (e.g., '{\"0\": {\"kv_mode\": {\"r\": 0.6, \"sx\": 2, \"sy\": 2}, \"q_mode\": {\"r\": 0.8, \"sx\": 4, \"sy\": 4}}, ...}')"
+    )
 
-    return parser.parse_args()
+    return parser
 
+
+def parse_and_convert_args() -> EvaluateArgs:
+    parser = get_args_parser()
+    args = parser.parse_args()
+
+    tome_setting: Optional[SAMToMeSetting] = None
+
+    # Parse the JSON string into a dictionary if provided
+    if args.tome_setting is not None:
+        try:
+            tome_setting = json.loads(args.tome_setting)
+            print("Parsed ToMe Settings:", tome_setting)
+        except json.JSONDecodeError as e:
+            print(f"Error parsing ToMe settings: {e}")
+    else:
+        print("No ToMe settings provided. Proceeding with default behavior.")
+
+    if args.multiple_masks and args.num_masks is None:
+        parser.error("--num_masks must be specified if --multiple_masks is set.")
+
+    evaluate_args = EvaluateArgs(
+        dataset=args.dataset,
+        output=args.output,
+        model_type=args.model_type,
+        checkpoint=args.checkpoint,
+        device=args.device,
+        seed=int(args.seed),
+        input_size=args.input_size,
+        batch_size=int(args.batch_size),
+        multiple_masks=args.multiple_masks,
+        num_masks=args.num_masks,
+        tome_setting=tome_setting,
+    )
+
+    return evaluate_args
+
+
+
+# valid set
+dataset_coift_val = ReadDatasetInput(
+    name="COIFT",
+    im_dir="./data/thin_object_detection/COIFT/images",
+    gt_dir="./data/thin_object_detection/COIFT/masks",
+    im_ext=".jpg",
+    gt_ext=".png"
+)
+
+dataset_hrsod_val = ReadDatasetInput(
+    name="HRSOD",
+    im_dir="./data/thin_object_detection/HRSOD/images",
+    gt_dir="./data/thin_object_detection/HRSOD/masks_max255",
+    im_ext=".jpg",
+    gt_ext=".png"
+)
+
+dataset_thin_val = ReadDatasetInput(
+    name="ThinObject5k-TE",
+    im_dir="./data/thin_object_detection/ThinObject5K/images_test",
+    gt_dir="./data/thin_object_detection/ThinObject5K/masks_test",
+    im_ext=".jpg",
+    gt_ext=".png"
+)
+
+dataset_dis_val = ReadDatasetInput(
+    name="DIS5K-VD",
+    im_dir="./data/DIS5K/DIS-VD/im",
+    gt_dir="./data/DIS5K/DIS-VD/gt",
+    im_ext=".jpg",
+    gt_ext=".png"
+)
+
+dataset_name_mapping = {
+    "dis": dataset_dis_val,
+    "thin": dataset_thin_val,
+    "hrsod": dataset_hrsod_val,
+    "coift": dataset_coift_val
+}
 
 if __name__ == "__main__":
-    # args = get_args_parser()
-    mask_ious_diff_layers, boundary_ious_diff_layers = evaluate()
-    print("mask_ious", mask_ious_diff_layers)
-    print("boundary_ious", boundary_ious_diff_layers)
+    args = parse_and_convert_args()
+    evaluate(args)

@@ -91,7 +91,7 @@ def evaluate(args: EvaluateArgs = None):
     metric_logger = misc.MetricLogger(delimiter="  ")
     print(f"valid dataloader length: {len(valid_dataloader)}")
 
-    for data_val in metric_logger.log_every(valid_dataloader, 10):
+    for data_val in metric_logger.log_every(valid_dataloader, 200):
         imidx, inputs, labels, shapes, labels_ori = data_val["imidx"], data_val["image"], data_val["label"], data_val["shape"], data_val["ori_label"]
 
         inputs = inputs.to(device)
@@ -157,7 +157,6 @@ def get_args_parser():
                         help='Enable multiple mask outputs. Require --num_masks to be specified.')
     parser.add_argument('--num_masks', type=int, required=True,
                         help='Specify the number of masks to output (only if --multiple_masks is set).')
-    # TODO: mode and required parameters
     parser.add_argument(
         "--tome_setting",
         type=str,

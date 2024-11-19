@@ -27,7 +27,7 @@ evaluate_args = EvaluateArgs(
     input_size=[1024, 1024],
     batch_size=1,
     multiple_masks=False,
-    tome_setting = None,
+    tome_setting = test_tome_setting,
 )
 
 results = evaluate(evaluate_args)

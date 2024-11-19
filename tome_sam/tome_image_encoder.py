@@ -4,6 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 import math
+from xml.etree.ElementTree import XMLParser
 
 import torch
 import torch.nn as nn
@@ -11,7 +12,7 @@ import torch.nn.functional as F
 
 from typing import Optional, Tuple, Type, Dict
 
-from tomesd.merge import bipartite_soft_matching_random2d
+from .utils.merge import bipartite_soft_matching_random2d
 
 from segment_anything.modeling.image_encoder import Attention, ImageEncoderViT
 from .common import LayerNorm2d, MLPBlock
@@ -227,64 +228,63 @@ class EfficientAttention(Attention):
         self.tome_setting = tome_setting
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # X - (B, H, W, C * nHeads)
         B, H, W, _ = x.shape
-        # qkv with shape (3, B, nHead, H * W, C)
-        qkv = self.qkv(x).reshape(B, H * W, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
-        # q, k, v with shape (B * nHead, H * W, C)
-        q, k, v = qkv.reshape(3, B * self.num_heads, H * W, -1).unbind(0)
+        C = _ // self.num_heads
 
-        # Apply token merging
-        B_times_num_heads, N, C = q.shape
-        assert math.isqrt(N) ** 2 == N
-        w_ = int(math.sqrt(N))
-        h_ = w_
+        # X - (B * nHeads, N, C)
+        x = x.reshape(B, H, W, self.num_heads, C).permute(0, 3, 1, 2, 4).reshape(B * self.num_heads, H * W, C)
+
+        x_q = x
+        x_kv = x
 
         # BSM on q
-        q_merge, q_unmerge = bipartite_soft_matching_random2d(
-            metric=q, w=w_, h=h_,
-            r=int(q.size()[1] * self.tome_setting.q_mode.r),
+        x_merge, x_unmerge = bipartite_soft_matching_random2d(
+            metric=x_q, w=W, h=H,
+            r=int(H*W * self.tome_setting.q_mode.r),
             sx=self.tome_setting.q_mode.sx, sy=self.tome_setting.q_mode.sy,
             no_rand=True
         )
-        q = q_merge(q)
+        x_q = x_merge(x_q)
+        _, Nq_reduced, _ = x_q.shape
+        # reshape x_q from (B*nHeads, Nq_reduced, C) to (B, Nq_reduced, C*nHeads)
+        x_q = x_q.reshape(B, self.num_heads, Nq_reduced, C).permute(0, 2, 1, 3).reshape(B, Nq_reduced, C*self.num_heads)
+        # qkv in shape of (B, Nq_reduced, C*nHeads*3)
+        qkv = self.qkv(x_q)
+        # qkv in shape of (3, B, nHeads, Nq_reduced, C)
+        qkv = qkv.reshape(B, Nq_reduced, 3, self.num_heads, C).permute(2, 0, 3, 1, 4)
+        # q in shape of (B*nHeads, Nq_reduced, C)
+        q, _, _ = qkv.reshape(3, B*self.num_heads, Nq_reduced, C).unbind(0)
 
-        # BSM on k
-        k_merge, k_unmerge = bipartite_soft_matching_random2d(
-            metric=k, w=w_, h=h_,
-            r=int(k.size()[1] * self.tome_setting.kv_mode.r),
+        # BSM on kv
+        kv_merge, kv_unmerge = bipartite_soft_matching_random2d(
+            metric=x_kv, w=W, h=H,
+            r=int(H*W * self.tome_setting.kv_mode.r),
             sx=self.tome_setting.kv_mode.sx, sy=self.tome_setting.kv_mode.sy,
             no_rand=True
         )
-        k = k_merge(k)
-
-        # BSM on v
-        v_merge, v_unmerge = bipartite_soft_matching_random2d(
-            metric=v, w=w_, h=h_,
-            r=int(v.size()[1] * self.tome_setting.kv_mode.r),
-            sx=self.tome_setting.kv_mode.sx, sy=self.tome_setting.kv_mode.sy,
-            no_rand=True
-        )
-        v = v_merge(v)
+        x_kv = kv_merge(x_kv)
+        _, Nkv_reduced, _ = x_kv.shape
+        # reshape x_kv from (B*nHeads, Nkv_reduced, C) to (B, Nkv_reduced, C*nHeads)
+        x_kv = x_kv.reshape(B, self.num_heads, Nkv_reduced, C).permute(0, 2, 1, 3).reshape(B, Nkv_reduced, C*self.num_heads)
+        # qkv in shape of (B, Nkv_reduced, C*nHeads*3)
+        qkv = self.qkv(x_kv)
+        # qkv in shape of (3, B, nHeads, Nkv_reduced, C)
+        qkv = qkv.reshape(B, Nkv_reduced, 3, self.num_heads, C).permute(2, 0, 3, 1, 4)
+        # q in shape of (B*nHeads, Nkv_reduced, C)
+        _, k, v = qkv.reshape(3, B*self.num_heads, Nkv_reduced, C).unbind(0)
 
         attn = (q * self.scale) @ k.transpose(-2, -1)
 
-        B_times_num_heads, N, C = k.shape
-        k_h = N
-        k_w = 1
+        # TODO: How to handle relative position embedding after tokens being merged :(
+        # if self.use_rel_pos:
+            # attn = add_decomposed_rel_pos(attn, q, self.rel_pos_h, self.rel_pos_w, (H, W), (H, W))
 
-        B_times_num_heads, N, C = q.shape
-        q_h = N
-        q_w = 1
-
-        # TODO: check the correctness of this relative position after token merging.
-        if self.use_rel_pos:
-            attn = add_decomposed_rel_pos(attn, q, self.rel_pos_h, self.rel_pos_w, (q_h, q_w), (k_h, k_w))
 
         attn = attn.softmax(dim=-1)
-
-        x = (attn @ v)
-        # token unmerge bsm
-        x = q_unmerge(x)
+        x = attn @ v
+        # token unmerge
+        x = x_unmerge(x)
         x = x.view(B, self.num_heads, H, W, -1).permute(0, 2, 3, 1, 4).reshape(B, H, W, -1)
         x = self.proj(x)
 

@@ -1,11 +1,66 @@
+from dataclasses import dataclass
 from functools import partial
-from typing import Optional
+from typing import Optional, List
+
 
 import torch
 
 from segment_anything.modeling import Sam, PromptEncoder, MaskDecoder, TwoWayTransformer
 from tome_sam.tome_image_encoder import ToMeImageEncoderViT
 from tome_sam.utils.tome_presets import SAMToMeSetting
+
+
+# Aggregation of SAM image encoder parameters which can be easily accessed by other code snippets
+@dataclass
+class SAMImageEncoderConfig:
+    """
+    Configuration class for SAM image encoder
+    """
+    model_type: str # (vit-b, vit-l, vit-h)
+    depth: int
+    image_size: int
+    vit_patch_size: int
+    embed_dim: int
+    num_heads: int
+    window_size: int
+    global_attn_indexes: List[int]
+
+SAM_CONFIGS = {
+    'vit-b': SAMImageEncoderConfig(
+        model_type='vit-b',
+        depth=12,
+        image_size=1024,
+        vit_patch_size=16,
+        embed_dim=768,
+        num_heads=12,
+        window_size=14,
+        global_attn_indexes=[2, 5, 8, 11],
+    ),
+    'vit-l': SAMImageEncoderConfig(
+        model_type='vit-l',
+        depth=24,
+        image_size=1024,
+        vit_patch_size=16,
+        embed_dim=1024,
+        num_heads=16,
+        window_size=14,
+        global_attn_indexes=[5, 11, 17, 23],
+    ),
+    'vit-h': SAMImageEncoderConfig(
+        model_type='vit-h',
+        depth=32,
+        image_size=1024,
+        vit_patch_size=16,
+        embed_dim=1280,
+        num_heads=16,
+        window_size=14,
+        global_attn_indexes=[7, 15, 23, 31],
+    ),
+}
+
+def get_sam_config(model_type: str) -> SAMImageEncoderConfig:
+    return SAM_CONFIGS[model_type]
+
 
 
 def _build_tome_sam(

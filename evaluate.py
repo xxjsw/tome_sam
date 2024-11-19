@@ -91,7 +91,7 @@ def evaluate(args: EvaluateArgs = None):
     metric_logger = misc.MetricLogger(delimiter="  ")
     print(f"valid dataloader length: {len(valid_dataloader)}")
 
-    for data_val in metric_logger.log_every(valid_dataloader, 10):
+    for data_val in metric_logger.log_every(valid_dataloader, 200):
         imidx, inputs, labels, shapes, labels_ori = data_val["imidx"], data_val["image"], data_val["label"], data_val["shape"], data_val["ori_label"]
 
         inputs = inputs.to(device)
@@ -157,7 +157,6 @@ def get_args_parser():
                         help='Enable multiple mask outputs. Require --num_masks to be specified.')
     parser.add_argument('--num_masks', type=int, required=True,
                         help='Specify the number of masks to output (only if --multiple_masks is set).')
-    # TODO: mode and required parameters
     parser.add_argument(
         "--tome_setting",
         type=str,
@@ -167,6 +166,83 @@ def get_args_parser():
 
     return parser
 
+
+def parse_and_convert_args() -> EvaluateArgs:
+    parser = get_args_parser()
+    args = parser.parse_args()
+
+    tome_setting: Optional[SAMToMeSetting] = None
+
+    # Parse the JSON string into a dictionary if provided
+    if args.tome_setting is not None:
+        try:
+            tome_setting = json.loads(args.tome_setting)
+            print("Parsed ToMe Settings:", tome_setting)
+        except json.JSONDecodeError as e:
+            print(f"Error parsing ToMe settings: {e}")
+    else:
+        print("No ToMe settings provided. Proceeding with default behavior.")
+
+    if args.multiple_masks and args.num_masks is None:
+        parser.error("--num_masks must be specified if --multiple_masks is set.")
+
+    evaluate_args = EvaluateArgs(
+        dataset=args.dataset,
+        output=args.output,
+        model_type=args.model_type,
+        checkpoint=args.checkpoint,
+        device=args.device,
+        seed=int(args.seed),
+        input_size=args.input_size,
+        batch_size=int(args.batch_size),
+        multiple_masks=args.multiple_masks,
+        num_masks=args.num_masks,
+        tome_setting=tome_setting,
+    )
+
+    return evaluate_args
+
+
+
+# valid set
+dataset_coift_val = ReadDatasetInput(
+    name="COIFT",
+    im_dir="./data/thin_object_detection/COIFT/images",
+    gt_dir="./data/thin_object_detection/COIFT/masks",
+    im_ext=".jpg",
+    gt_ext=".png"
+)
+
+dataset_hrsod_val = ReadDatasetInput(
+    name="HRSOD",
+    im_dir="./data/thin_object_detection/HRSOD/images",
+    gt_dir="./data/thin_object_detection/HRSOD/masks_max255",
+    im_ext=".jpg",
+    gt_ext=".png"
+)
+
+dataset_thin_val = ReadDatasetInput(
+    name="ThinObject5k-TE",
+    im_dir="./data/thin_object_detection/ThinObject5K/images_test",
+    gt_dir="./data/thin_object_detection/ThinObject5K/masks_test",
+    im_ext=".jpg",
+    gt_ext=".png"
+)
+
+dataset_dis_val = ReadDatasetInput(
+    name="DIS5K-VD",
+    im_dir="./data/DIS5K/DIS-VD/im",
+    gt_dir="./data/DIS5K/DIS-VD/gt",
+    im_ext=".jpg",
+    gt_ext=".png"
+)
+
+dataset_name_mapping = {
+    "dis": dataset_dis_val,
+    "thin": dataset_thin_val,
+    "hrsod": dataset_hrsod_val,
+    "coift": dataset_coift_val
+}
 
 def parse_and_convert_args() -> EvaluateArgs:
     parser = get_args_parser()

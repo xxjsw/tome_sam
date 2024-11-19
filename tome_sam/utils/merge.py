@@ -71,7 +71,6 @@ def bipartite_soft_matching_random2d(metric: torch.Tensor,
             rand_idx = torch.randint(sy * sx, size=(hsy, wsx, 1), device=generator.device, generator=generator).to(
                 metric.device)
 
-        # print('rand_idx', rand_idx)
         # The image might not divide sx and sy, so we need to work on a view of the top left if the idx buffer instead
         idx_buffer_view = torch.zeros(hsy, wsx, sy * sx, device=metric.device, dtype=torch.int64)
         idx_buffer_view.scatter_(dim=2, index=rand_idx, src=-torch.ones_like(rand_idx, dtype=rand_idx.dtype))
@@ -87,8 +86,6 @@ def bipartite_soft_matching_random2d(metric: torch.Tensor,
         # We set dst tokens to be -1 and src to be 0, so an argsort gives us dst|src indices
         rand_idx = idx_buffer.reshape(1, -1, 1).argsort(dim=1)
 
-        print('idx_buffer', idx_buffer.shape, idx_buffer)
-        # print('idx_buffer_view: ', idx_buffer_view)
         # We're finished with these
         del idx_buffer, idx_buffer_view
 
@@ -121,9 +118,6 @@ def bipartite_soft_matching_random2d(metric: torch.Tensor,
         unm_idx = edge_idx[..., r:, :]  # Unmerged Tokens
         src_idx = edge_idx[..., :r, :]  # Merged Tokens
         dst_idx = gather(node_idx[..., None], dim=-2, index=src_idx)
-        # print('unm_idx', unm_idx.shape, unm_idx)
-        # print('src idx: ', src_idx.shape, src_idx)
-        # print('dst idx: ', dst_idx.shape, dst_idx)
 
 
     def merge(x: torch.Tensor, mode="mean") -> torch.Tensor:

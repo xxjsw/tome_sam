@@ -232,68 +232,61 @@ class EfficientAttention(Attention):
         B, H, W, _ = x.shape
         C = _ // self.num_heads
 
-        print(B, H, W, C)
         # X - (B * nHeads, N, C)
         x = x.reshape(B, H, W, self.num_heads, C).permute(0, 3, 1, 2, 4).reshape(B * self.num_heads, H * W, C)
-        print('1: ', x.shape)
-        # only do token merging once on x before projecting onto q, k, v
+
+        x_q = x
+        x_kv = x
+
+        # BSM on q
         x_merge, x_unmerge = bipartite_soft_matching_random2d(
-            metric=x, w=W, h=H,
+            metric=x_q, w=W, h=H,
             r=int(H*W * self.tome_setting.q_mode.r),
             sx=self.tome_setting.q_mode.sx, sy=self.tome_setting.q_mode.sy,
             no_rand=True
         )
-        x = x_merge(x)
+        x_q = x_merge(x_q)
+        _, Nq_reduced, _ = x_q.shape
+        # reshape x_q from (B*nHeads, Nq_reduced, C) to (B, Nq_reduced, C*nHeads)
+        x_q = x_q.reshape(B, self.num_heads, Nq_reduced, C).permute(0, 2, 1, 3).reshape(B, Nq_reduced, C*self.num_heads)
+        # qkv in shape of (B, Nq_reduced, C*nHeads*3)
+        qkv = self.qkv(x_q)
+        # qkv in shape of (3, B, nHeads, Nq_reduced, C)
+        qkv = qkv.reshape(B, Nq_reduced, 3, self.num_heads, C).permute(2, 0, 3, 1, 4)
+        # q in shape of (B*nHeads, Nq_reduced, C)
+        q, _, _ = qkv.reshape(3, B*self.num_heads, Nq_reduced, C).unbind(0)
 
-        print('after merge: ', x.shape)
-
-        B, H, W, _ = x.shape
-        # qkv with shape (3, B, nHead, H * W, C)
-        qkv = self.qkv(x).reshape(B, H * W, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
-        # q, k, v with shape (B * nHead, H * W, C)
-        q, k, v = qkv.reshape(3, B * self.num_heads, H * W, -1).unbind(0)
-
-
-        # Apply token merging
-        B_times_num_heads, N, C = q.shape
-        assert math.isqrt(N) ** 2 == N
-        w_ = int(math.sqrt(N))
-        h_ = w_
-
-        # BSM on q
-        q_merge, q_unmerge = bipartite_soft_matching_random2d(
-            metric=q, w=w_, h=h_,
-            r=int(q.size()[1] * self.tome_setting.q_mode.r),
-            sx=self.tome_setting.q_mode.sx, sy=self.tome_setting.q_mode.sy,
-            no_rand=True
-        )
-        q = q_merge(q)
-
-        # BSM on k
-        k_merge, k_unmerge = bipartite_soft_matching_random2d(
-            metric=k, w=w_, h=h_,
-            r=int(k.size()[1] * self.tome_setting.kv_mode.r),
+        # BSM on kv
+        kv_merge, kv_unmerge = bipartite_soft_matching_random2d(
+            metric=x_kv, w=W, h=H,
+            r=int(H*W * self.tome_setting.kv_mode.r),
             sx=self.tome_setting.kv_mode.sx, sy=self.tome_setting.kv_mode.sy,
             no_rand=True
         )
-        k = k_merge(k)
 
-        # BSM on v
-        v_merge, v_unmerge = bipartite_soft_matching_random2d(
-            metric=v, w=w_, h=h_,
-            r=int(v.size()[1] * self.tome_setting.kv_mode.r),
-            sx=self.tome_setting.kv_mode.sx, sy=self.tome_setting.kv_mode.sy,
-            no_rand=True
-        )
-        v = v_merge(v)
+        x_kv = kv_merge(x_kv)
+        _, Nkv_reduced, _ = x_kv.shape
+        # reshape x_kv from (B*nHeads, Nkv_reduced, C) to (B, Nkv_reduced, C*nHeads)
+        x_kv = x_kv.reshape(B, self.num_heads, Nkv_reduced, C).permute(0, 2, 1, 3).reshape(B, Nkv_reduced, C*self.num_heads)
+        # qkv in shape of (B, Nkv_reduced, C*nHeads*3)
+        qkv = self.qkv(x_kv)
+        # qkv in shape of (3, B, nHeads, Nkv_reduced, C)
+        qkv = qkv.reshape(B, Nkv_reduced, 3, self.num_heads, C).permute(2, 0, 3, 1, 4)
+        # q in shape of (B*nHeads, Nkv_reduced, C)
+        _, k, v = qkv.reshape(3, B*self.num_heads, Nkv_reduced, C).unbind(0)
 
         attn = (q * self.scale) @ k.transpose(-2, -1)
 
-        if self.use_rel_pos:
-            attn = add_decomposed_rel_pos(attn, q, self.rel_pos_h, self.rel_pos_w, (H, W), (H, W))
+        # TODO: How to handle relative position embedding after tokens being merged :(
+        # if self.use_rel_pos:
+            # attn = add_decomposed_rel_pos(attn, q, self.rel_pos_h, self.rel_pos_w, (H, W), (H, W))
+
 
         attn = attn.softmax(dim=-1)
-        x = (attn @ v).view(B, self.num_heads, H, W, -1).permute(0, 2, 3, 1, 4).reshape(B, H, W, -1)
+        x = attn @ v
+        # token unmerge
+        x = x_unmerge(x)
+        x = x.view(B, self.num_heads, H, W, -1).permute(0, 2, 3, 1, 4).reshape(B, H, W, -1)
         x = self.proj(x)
 
         return x

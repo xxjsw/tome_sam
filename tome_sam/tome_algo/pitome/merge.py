@@ -5,7 +5,8 @@
 # LICENSE file in the root directory of this source tree.
 # --------------------------------------------------------
 
-# Adapt from https://github.com/hchautran/PiToMe/blob/main/algo/pitome/merge.py
+# Adapt from https://github.com/hchautran/PiToMe/blob/main/algo/pitome/merge.py, remove class token, add unmerge part because
+# our task is segmentation.
 
 import math
 from typing import Callable, Tuple
@@ -37,7 +38,6 @@ def do_nothing(x, mode=None):
 
 def pitome(
         metric=None,
-        class_token: bool = False,
         indices: torch.Tensor = None,
         scores: torch.Tensor = None,
         r: int = None
@@ -53,9 +53,6 @@ def pitome(
     _, dst_idx = scores.max(dim=-1)
 
     def merge(x: torch.Tensor, mode="mean") -> torch.Tensor:
-        if class_token:
-            x_cls = x[:, 0, :].unsqueeze(1)
-            x = x[:, 1:, :]
 
         B, T, C = x.shape
         batch_idx = torch.arange(B).unsqueeze_(1).to(metric.device)
@@ -64,16 +61,11 @@ def pitome(
 
         dst = dst.scatter_reduce(-2, dst_idx.unsqueeze(2).expand(B, r, C), src, reduce=mode)
 
-        if class_token:
-            return torch.cat([x_cls, protected, dst], dim=1)
-        return torch.cat([protected, dst], dim=1)
-
     return merge
 
 
 def pitome_bsm(
         metric=None,
-        class_token: bool = False,
         indices: torch.Tensor = None,
         scores: torch.Tensor = None,
         r: int = None
@@ -91,18 +83,12 @@ def pitome_bsm(
         dst_idx = node_idx[..., None].gather(dim=-2, index=src_idx)
 
     def merge(x: torch.Tensor, mode="mean") -> torch.Tensor:
-        if class_token:
-            x_cls = x[:, 0, :].unsqueeze(1)
-            x = x[:, 1:, :]
-
         src, dst = x[batch_idx, a_idx, :], x[batch_idx, b_idx, :]
         n, t1, c = src.shape
         unm = src.gather(dim=-2, index=unm_idx.expand(n, t1 - r, c))
         src = src.gather(dim=-2, index=src_idx.expand(n, r, c))
         dst = dst.scatter_reduce(-2, dst_idx.expand(n, r, c), src, reduce=mode)
 
-        if class_token:
-            return torch.cat([x_cls, unm, dst], dim=1)
         return torch.cat([unm, dst], dim=1)
 
     return merge
@@ -112,13 +98,10 @@ def pitome_vision(
         metric: torch.Tensor,
         ratio: float = 1.0,
         margin: torch.Tensor = 0.5,
-        class_token: bool = False,
         alpha=1.0,
         use_bsm_pitome=False
 ):
     with torch.no_grad():
-        if class_token:
-            metric = metric[:, 1:, :]
         B, T, C = metric.shape
         if ratio < 1.0:
             r = math.floor(T - T * ratio)
@@ -132,59 +115,10 @@ def pitome_vision(
         indices = torch.argsort(energy_score, descending=True)
         # seperate protected token and mergeable tokens
         if use_bsm_pitome:
-            return pitome_bsm(metric=metric, class_token=class_token, indices=indices, scores=sim, r=r)
+            return pitome_bsm(metric=metric, indices=indices, scores=sim, r=r)
         else:
-            return pitome(metric=metric, class_token=class_token, indices=indices, scores=sim, r=r)
+            return pitome(metric=metric, indices=indices, scores=sim, r=r)
 
-
-def pitome_text(
-        metric: torch.Tensor,
-        ratio: float = 1.0,
-        margin: torch.Tensor = 0.5,
-        class_token: bool = False,
-):
-    with torch.no_grad():
-        if class_token:
-            metric = metric[:, 1:, :]
-
-        if len(metric.shape) == 2:
-            metric = metric[None, ...]
-        B, T, C = metric.shape
-        r = math.floor(T - T * ratio)
-        metric = F.normalize(metric, p=2, dim=-1)
-        batch_idx = torch.arange(B).unsqueeze_(1).to(metric.device)
-        # To calculate energy scores for text tokens, in this implementation, we use the Gaussian kernel. This shows better performance than the equation (4) in the paper
-        sim = metric @ metric.transpose(-1, -2)
-        # sim = F.elu((metric@metric.transpose(-1,-2) - margin)/0.01, alpha=alpha)
-        sigma = 1 - margin
-        energy_score = (torch.exp(-(((1 - sim) / sigma) ** 2 * 0.5))).mean(-1) * 1 / (
-                    sigma * torch.sqrt(torch.tensor(2 * torch.pi)))
-        indices = torch.argsort(energy_score, descending=True)
-        merge_idx = indices[..., :2 * r]
-        protected_idx = indices[..., 2 * r:]
-        # Also instead of using odd and even indices, we choose to split based on higher and lower energy sets which show significantly better performance
-        a_idx, b_idx = merge_idx[..., :r], merge_idx[..., r:]
-        scores = sim.gather(dim=-1, index=b_idx.unsqueeze(-2).expand(B, T, r))
-        scores = scores.gather(dim=-2, index=a_idx.unsqueeze(-1).expand(B, r, r))
-        _, dst_idx = scores.max(dim=-1)
-
-    def merge(x: torch.Tensor, mode="mean") -> torch.Tensor:
-        if class_token:
-            x_cls = x[:, 0, :].unsqueeze(1)
-            x = x[:, 1:, :]
-        else:
-            x_cls = None
-
-        B, T, C = x.shape
-        protected = x[batch_idx, protected_idx, :]
-        src, dst = x[batch_idx, a_idx, :], x[batch_idx, b_idx, :]
-        dst = dst.scatter_reduce(-2, dst_idx.unsqueeze(2).expand(B, r, C), src, reduce=mode)
-
-        if class_token:
-            return torch.cat([x_cls, protected, dst], dim=1)
-        return torch.cat([protected, dst], dim=1)
-
-    return merge
 
 
 def merge_mean(

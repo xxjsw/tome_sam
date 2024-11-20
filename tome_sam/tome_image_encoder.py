@@ -170,7 +170,7 @@ class Block(nn.Module):
         super().__init__()
         self.norm1 = norm_layer(dim)
         if tome_setting:
-            self.attn = EfficientAttention(
+            self.attn = BSMAttention(
                 tome_setting=tome_setting,
                 dim=dim,
                 num_heads=num_heads,
@@ -213,7 +213,7 @@ class Block(nn.Module):
         return x
 
 
-class EfficientAttention(Attention):
+class BSMAttention(Attention):
     def __init__(
             self,
             tome_setting: ViTToMe,

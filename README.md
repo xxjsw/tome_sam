@@ -32,7 +32,7 @@ wget https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth
 
 ### Prepare Dataset
 Refer to dataset preparation from [Segment Anything in high Quality](https://github.com/SysCV/sam-hq/blob/main/train/README.md#1-data-preparation).
-Download available datasets from [Hugging Face link](https://huggingface.co/sam-hq-team/sam-hq-training/tree/main/data), and orgaanize the
+Download available datasets from [Hugging Face link](https://huggingface.co/sam-hq-team/sam-hq-training/tree/main/data), and organize the
 dataset with the following structure:
 ```
 tome_sam

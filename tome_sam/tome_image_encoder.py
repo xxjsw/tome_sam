@@ -287,6 +287,24 @@ class BSMAttention(Attention):
 
         return x
 
+# TODO: overwrite forward() with token merging and unmerging
+class PITOMEAttention(Attention):
+    def __init__(
+            self,
+            tome_setting: ViTToMe,
+            dim: int,
+            num_heads: int = 8,
+            qkv_bias: bool = True,
+            use_rel_pos: bool = False,
+            rel_pos_zero_init: bool = True,
+            input_size: Optional[Tuple[int, int]] = None,
+    ) -> None:
+        super().__init__(dim, num_heads, qkv_bias, use_rel_pos, rel_pos_zero_init, input_size)
+        self.tome_setting = tome_setting
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        pass
+
 
 def window_partition(x: torch.Tensor, window_size: int) -> Tuple[torch.Tensor, Tuple[int, int]]:
     """

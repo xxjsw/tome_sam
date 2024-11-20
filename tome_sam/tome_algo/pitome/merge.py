@@ -61,8 +61,6 @@ def pitome(
 
         dst = dst.scatter_reduce(-2, dst_idx.unsqueeze(2).expand(B, r, C), src, reduce=mode)
 
-    return merge
-
 
 def pitome_bsm(
         metric=None,
@@ -91,7 +89,11 @@ def pitome_bsm(
 
         return torch.cat([unm, dst], dim=1)
 
-    return merge
+    def unmerge(x: torch.Tensor) -> torch.Tensor:
+        pass
+
+
+    return merge, unmerge
 
 
 def pitome_vision(
@@ -99,7 +101,7 @@ def pitome_vision(
         ratio: float = 1.0,
         margin: torch.Tensor = 0.5,
         alpha=1.0,
-        use_bsm_pitome=False
+        use_bsm_pitome=True
 ):
     with torch.no_grad():
         B, T, C = metric.shape

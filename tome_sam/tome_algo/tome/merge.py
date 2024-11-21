@@ -92,9 +92,7 @@ def bipartite_soft_matching_random2d(metric: torch.Tensor,
         # rand_idx is currently dst|src, so split them
         num_dst = hsy * wsx
         a_idx = rand_idx[:, num_dst:, :]  # src
-        print('a_idx', a_idx.shape, a_idx)
         b_idx = rand_idx[:, :num_dst, :]  # dst
-        print('b_idx', b_idx.shape, b_idx)
 
         def split(x):
             C = x.shape[-1]

@@ -61,7 +61,7 @@ def pitome_bsm(
         metric=None,
         indices: torch.Tensor = None, # descendingly sorted indices matrix according to the energy score
         scores: torch.Tensor = None,
-        r: int = None
+        r: int = None # number of tokens t be merged
 ) -> Tuple[Callable, Callable]:
 
     gather = mps_gather_workaround if metric.device.type == "mps" else torch.gather
@@ -71,15 +71,17 @@ def pitome_bsm(
         a_idx, b_idx = indices[..., ::2], indices[..., 1::2] # src, dst
         num_dst = b_idx.shape[-1]
         batch_idx = torch.arange(B).unsqueeze_(1).to(metric.device)
+
         scores = gather(scores, dim=-1, index=b_idx.unsqueeze(-2).expand(B, T, b_idx.shape[-1]))
+
         scores = gather(scores, dim=-2, index=a_idx.unsqueeze(-1).expand(B, a_idx.shape[-1], b_idx.shape[-1]))
 
         node_max, node_idx = scores.max(dim=-1)
-        edge_idx = node_max.argsort(dim=-1, descending=True)[..., None]
 
+        edge_idx = node_max.argsort(dim=-1, descending=True)[..., None]
         unm_idx = edge_idx[..., r:, :]  # Unmerged Tokens
         src_idx = edge_idx[..., :r, :]  # Merged Tokens
-        dst_idx = node_idx[..., None].gather(dim=-2, index=src_idx)
+        dst_idx = gather(node_idx[..., None], dim=-2, index=src_idx)
 
 
     def merge(x: torch.Tensor, mode="mean") -> torch.Tensor:
@@ -99,12 +101,12 @@ def pitome_bsm(
         _, _, c = unm.shape
 
         src = gather(dst, dim=-2, index=dst_idx.expand(B, r, c))
-
         # Combine back to the original shape
         out = torch.zeros(B, T, c, device=x.device, dtype=x.dtype)
-        out.scatter_(dim=-2, index=b_idx.expand(B, num_dst, c), src=dst)
-        out.scatter_(dim=-2, index=gather(a_idx.expand(B, a_idx.shape[1], 1), dim=1, index=unm_idx).expand(B, unm_len, c), src=unm)
-        out.scatter_(dim=-2, index=gather(a_idx.expand(B, a_idx.shape[1], 1), dim=1, index=src_idx).expand(B, r, c), src=src)
+
+        out.scatter_(dim=-2, index=b_idx.unsqueeze(-1).expand(B, num_dst, c), src=dst)
+        out.scatter_(dim=-2, index=gather(a_idx.unsqueeze(-1).expand(B, a_idx.shape[1], 1), dim=1, index=unm_idx).expand(B, unm_len, c), src=unm)
+        out.scatter_(dim=-2, index=gather(a_idx.unsqueeze(-1).expand(B, a_idx.shape[1], 1), dim=1, index=src_idx).expand(B, r, c), src=src)
 
         return out
 

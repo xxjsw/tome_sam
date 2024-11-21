@@ -92,7 +92,9 @@ def bipartite_soft_matching_random2d(metric: torch.Tensor,
         # rand_idx is currently dst|src, so split them
         num_dst = hsy * wsx
         a_idx = rand_idx[:, num_dst:, :]  # src
+        print('a_idx', a_idx.shape, a_idx)
         b_idx = rand_idx[:, :num_dst, :]  # dst
+        print('b_idx', b_idx.shape, b_idx)
 
         def split(x):
             C = x.shape[-1]
@@ -104,9 +106,6 @@ def bipartite_soft_matching_random2d(metric: torch.Tensor,
         metric = safe_normalize(metric, dim=-1)
         a, b = split(metric)
         scores = a @ b.transpose(-1, -2)
-        # print('src', a.shape, a)
-        # print('dst', b.shape, b)
-        # print('scores', scores.shape, scores)
 
         # Can't reduce more than the # tokens in src
         r = min(a.shape[1], r)
@@ -117,7 +116,9 @@ def bipartite_soft_matching_random2d(metric: torch.Tensor,
 
         unm_idx = edge_idx[..., r:, :]  # Unmerged Tokens
         src_idx = edge_idx[..., :r, :]  # Merged Tokens
+        print('src_idx', src_idx.shape, src_idx)
         dst_idx = gather(node_idx[..., None], dim=-2, index=src_idx)
+        print('dst_idx', dst_idx.shape, dst_idx)
 
 
     def merge(x: torch.Tensor, mode="mean") -> torch.Tensor:

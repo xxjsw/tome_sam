@@ -13,24 +13,16 @@ from typing import Callable, Tuple
 import torch
 import torch.nn.functional as F
 
-def safe_normalize(x: torch.Tensor, dim: int=-1, eps: float=1e-12):
-    """
-    Safely normalize a tensor by handling zero vectors.
-    Args:
-        x: Input tensor of shape (B, N, C)
-        dim: Dimension along which to normalize
-        eps: epsilon to prevent division by zero
-    Returns:
-        Normalized tensor with same shape as input
-    """
-    norm = x.norm(dim=dim, keepdim=True)
-    zero_mask = (norm < eps).squeeze(dim)
-    norm = norm.clamp(min=eps)
-    x = x / norm
-    x[zero_mask] = 0.0
 
-    return x
-
+def mps_gather_workaround(input, dim, index):
+    if input.shape[-1] == 1:
+        return torch.gather(
+            input.unsqueeze(-1),
+            dim - 1 if dim < 0 else dim,
+            index.unsqueeze(-1)
+        ).squeeze(-1)
+    else:
+        return torch.gather(input, dim, index)
 
 def do_nothing(x, mode=None):
     return x
@@ -42,14 +34,17 @@ def pitome(
         scores: torch.Tensor = None,
         r: int = None
 ) -> Tuple[Callable, Callable]:
+
+    gather = mps_gather_workaround if metric.device.type == "mps" else torch.gather
+
     B, T, T = scores.shape
     merge_idx = indices[..., :2 * r]
     protected_idx = indices[..., 2 * r:]
     a_idx, b_idx = merge_idx[..., ::2], merge_idx[..., 1::2]
 
     # get similarity scores between mergeable tokens
-    scores = scores.gather(dim=-1, index=b_idx.unsqueeze(-2).expand(B, T, r))
-    scores = scores.gather(dim=-2, index=a_idx.unsqueeze(-1).expand(B, r, r))
+    scores = gather(scores, dim=-1, index=b_idx.unsqueeze(-2).expand(B, T, r))
+    scores = gather(scores, dim=-2, index=a_idx.unsqueeze(-1).expand(B, r, r))
     _, dst_idx = scores.max(dim=-1)
 
     def merge(x: torch.Tensor, mode="mean") -> torch.Tensor:
@@ -64,16 +59,19 @@ def pitome(
 
 def pitome_bsm(
         metric=None,
-        indices: torch.Tensor = None,
+        indices: torch.Tensor = None, # descendingly sorted indices matrix according to the energy score
         scores: torch.Tensor = None,
         r: int = None
 ) -> Tuple[Callable, Callable]:
+
+    gather = mps_gather_workaround if metric.device.type == "mps" else torch.gather
+
     with torch.no_grad():
         B, T, T = scores.shape
         a_idx, b_idx = indices[..., ::2], indices[..., 1::2]
         batch_idx = torch.arange(B).unsqueeze_(1).to(metric.device)
-        scores = scores.gather(dim=-1, index=b_idx.unsqueeze(-2).expand(B, T, b_idx.shape[-1]))
-        scores = scores.gather(dim=-2, index=a_idx.unsqueeze(-1).expand(B, a_idx.shape[-1], b_idx.shape[-1]))
+        scores = gather(scores, dim=-1, index=b_idx.unsqueeze(-2).expand(B, T, b_idx.shape[-1]))
+        scores = gather(scores, dim=-2, index=a_idx.unsqueeze(-1).expand(B, a_idx.shape[-1], b_idx.shape[-1]))
         node_max, node_idx = scores.max(dim=-1)
         edge_idx = node_max.argsort(dim=-1, descending=True)[..., None]
         unm_idx = edge_idx[..., r:, :]  # Unmerged Tokens
@@ -83,14 +81,27 @@ def pitome_bsm(
     def merge(x: torch.Tensor, mode="mean") -> torch.Tensor:
         src, dst = x[batch_idx, a_idx, :], x[batch_idx, b_idx, :]
         n, t1, c = src.shape
-        unm = src.gather(dim=-2, index=unm_idx.expand(n, t1 - r, c))
-        src = src.gather(dim=-2, index=src_idx.expand(n, r, c))
+        unm = gather(src, dim=-2, index=unm_idx.expand(n, t1 - r, c))
+        src = gather(src, dim=-2, index=src_idx.expand(n, r, c))
         dst = dst.scatter_reduce(-2, dst_idx.expand(n, r, c), src, reduce=mode)
 
         return torch.cat([unm, dst], dim=1)
 
+
     def unmerge(x: torch.Tensor) -> torch.Tensor:
-        pass
+        unm_len = unm_idx.shape[1]
+        unm, dst = x[..., :unm_len, :], x[..., unm_len:, :]
+        _, _, c = unm.shape
+
+        src = gather(dst, dim=-2, index=dst_idx.expand(B, r, c))
+
+        # Combine back to the original shape
+        out = torch.zeros(B, N, c, device=x.device, dtype=x.dtype)
+        out.scatter_(dim=-2, index=b_idx.expand(B, num_dst, c), src=dst)
+        out.scatter_(dim=-2, index=gather(a_idx.expand(B, a_idx.shape[1], 1), dim=1, index=unm_idx).expand(B, unm_len, c), src=unm)
+        out.scatter_(dim=-2, index=gather(a_idx.expand(B, a_idx.shape[1], 1), dim=1, index=src_idx).expand(B, r, c), src=src)
+
+        return out
 
 
     return merge, unmerge
@@ -98,15 +109,15 @@ def pitome_bsm(
 
 def pitome_vision(
         metric: torch.Tensor,
-        ratio: float = 1.0,
-        margin: torch.Tensor = 0.5,
-        alpha=1.0,
+        ratio: float = 1.0, # ratio of remaining tokens
+        margin: torch.Tensor = 0.5, # for thresholding energy score
+        alpha=1.0, # for ELU activation
         use_bsm_pitome=True
 ):
     with torch.no_grad():
         B, T, C = metric.shape
         if ratio < 1.0:
-            r = math.floor(T - T * ratio)
+            r = math.floor(T - T * ratio) # so r means #tokens to be merged
         else:
             return do_nothing, do_nothing
 

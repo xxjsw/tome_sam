@@ -13,8 +13,6 @@ from typing import Callable, Tuple
 import torch
 import torch.nn.functional as F
 
-from check import num_dst
-
 
 def mps_gather_workaround(input, dim, index):
     if input.shape[-1] == 1:

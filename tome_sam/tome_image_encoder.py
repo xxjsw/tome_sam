@@ -1,5 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
+from collections.abc import Callable
 
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
@@ -14,7 +15,8 @@ from tome_sam.tome_algo.tome.merge import bipartite_soft_matching_random2d
 
 from segment_anything.modeling.image_encoder import Attention, ImageEncoderViT
 from .common import LayerNorm2d, MLPBlock
-from .utils.tome_presets import ViTToMe, SAMToMeSetting
+from .tome_algo.pitome.merge import pitome_vision
+from .utils.tome_presets import SAMToMeSetting, ViTToMeConfig
 
 
 # This class and its supporting functions below lightly adapted from the ViTDet backbone available at: https://github.com/facebookresearch/detectron2/blob/main/detectron2/modeling/backbone/vit.py # noqa
@@ -147,7 +149,7 @@ class Block(nn.Module):
             rel_pos_zero_init: bool = True,
             window_size: int = 0,
             input_size: Optional[Tuple[int, int]] = None,
-            tome_setting: ViTToMe = None,
+            tome_setting: ViTToMeConfig = None,
     ) -> None:
         """
         Args:
@@ -168,7 +170,7 @@ class Block(nn.Module):
         super().__init__()
         self.norm1 = norm_layer(dim)
         if tome_setting:
-            self.attn = BSMAttention(
+            self.attn = EfficientAttention(
                 tome_setting=tome_setting,
                 dim=dim,
                 num_heads=num_heads,
@@ -210,10 +212,10 @@ class Block(nn.Module):
 
 
 
-class BSMAttention(Attention):
+class EfficientAttention(Attention):
     def __init__(
             self,
-            tome_setting: ViTToMe,
+            tome_setting: ViTToMeConfig,
             dim: int,
             num_heads: int = 8,
             qkv_bias: bool = True,
@@ -235,13 +237,23 @@ class BSMAttention(Attention):
         x_q = x
         x_kv = x
 
-        # BSM on q
-        x_merge, x_unmerge = bipartite_soft_matching_random2d(
-            metric=x_q, w=W, h=H,
-            r=int(H*W * self.tome_setting.q_mode.r),
-            sx=self.tome_setting.q_mode.sx, sy=self.tome_setting.q_mode.sy,
-            no_rand=True
-        )
+        # token merging on q
+        x_merge, x_unmerge = Callable, Callable
+        if self.tome_setting.q.mode == 'bsm':
+            x_merge, x_unmerge = bipartite_soft_matching_random2d(
+                metric=x_q, w=W, h=H,
+                r=int(H * W * self.tome_setting.q.params.r),
+                sx=self.tome_setting.q.params.sx, sy=self.tome_setting.q.params.sy,
+                no_rand=True
+            )
+
+        if self.tome_setting.q.mode == 'pitome':
+            x_merge, x_unmerge = pitome_vision(
+                metric=x_q, ratio=self.tome_setting.q.params.r,
+                margin=torch.tensor(self.tome_setting.q.params.margin),
+                alpha=self.tome_setting.q.params.alpha,
+            )
+
         x_q = x_merge(x_q)
         _, Nq_reduced, _ = x_q.shape
         # reshape x_q from (B*nHeads, Nq_reduced, C) to (B, Nq_reduced, C*nHeads)
@@ -253,13 +265,23 @@ class BSMAttention(Attention):
         # q in shape of (B*nHeads, Nq_reduced, C)
         q, _, _ = qkv.reshape(3, B*self.num_heads, Nq_reduced, C).unbind(0)
 
-        # BSM on kv
-        kv_merge, kv_unmerge = bipartite_soft_matching_random2d(
-            metric=x_kv, w=W, h=H,
-            r=int(H*W * self.tome_setting.kv_mode.r),
-            sx=self.tome_setting.kv_mode.sx, sy=self.tome_setting.kv_mode.sy,
-            no_rand=True
-        )
+        # token merging on kv
+        kv_merge = Callable
+        if self.tome_setting.kv.mode == 'bsm':
+            kv_merge, _ = bipartite_soft_matching_random2d(
+                metric=x_kv, w=W, h=H,
+                r=int(H * W * self.tome_setting.kv.params.r),
+                sx=self.tome_setting.kv.params.sx, sy=self.tome_setting.kv.params.sy,
+                no_rand=True
+            )
+
+        if self.tome_setting.kv.mode == 'pitome':
+            kv_merge, _ = pitome_vision(
+                metric=x_kv, ratio=self.tome_setting.kv.params.r,
+                margin=torch.tensor(self.tome_setting.kv.params.margin),
+                alpha=self.tome_setting.kv.params.alpha,
+            )
+
         x_kv = kv_merge(x_kv)
         _, Nkv_reduced, _ = x_kv.shape
         # reshape x_kv from (B*nHeads, Nkv_reduced, C) to (B, Nkv_reduced, C*nHeads)
@@ -277,7 +299,6 @@ class BSMAttention(Attention):
         # if self.use_rel_pos:
             # attn = add_decomposed_rel_pos(attn, q, self.rel_pos_h, self.rel_pos_w, (H, W), (H, W))
 
-
         attn = attn.softmax(dim=-1)
         x = attn @ v
         # token unmerge
@@ -286,24 +307,6 @@ class BSMAttention(Attention):
         x = self.proj(x)
 
         return x
-
-# TODO: overwrite forward() with token merging and unmerging
-class PITOMEAttention(Attention):
-    def __init__(
-            self,
-            tome_setting: ViTToMe,
-            dim: int,
-            num_heads: int = 8,
-            qkv_bias: bool = True,
-            use_rel_pos: bool = False,
-            rel_pos_zero_init: bool = True,
-            input_size: Optional[Tuple[int, int]] = None,
-    ) -> None:
-        super().__init__(dim, num_heads, qkv_bias, use_rel_pos, rel_pos_zero_init, input_size)
-        self.tome_setting = tome_setting
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        pass
 
 
 def window_partition(x: torch.Tensor, window_size: int) -> Tuple[torch.Tensor, Tuple[int, int]]:

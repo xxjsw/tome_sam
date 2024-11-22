@@ -115,17 +115,17 @@ def pitome_bsm(
 
 def pitome_vision(
         metric: torch.Tensor,
-        ratio: float = 1.0, # ratio of remaining tokens
+        ratio: float = 0, # ratio of tokens to be merged
         margin: torch.Tensor = 0.5, # for thresholding energy score
         alpha=1.0, # for ELU activation
         use_bsm_pitome=True
 ):
     with torch.no_grad():
         B, T, C = metric.shape
-        if ratio < 1.0:
-            r = math.floor(T - T * ratio) # so r means #tokens to be merged
-        else:
+        if ratio <= 0:
             return do_nothing, do_nothing
+        else:
+            r = math.floor(T * ratio) # so r means #tokens to be merged
 
         # calculate energy score
         metric = F.normalize(metric, p=2, dim=-1)

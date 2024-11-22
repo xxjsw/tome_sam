@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, Union
+
 
 @dataclass
 class BSMToMe: # settings required to do BSM
@@ -8,44 +9,21 @@ class BSMToMe: # settings required to do BSM
     sy: int   # Stride in the y dimension
 
 @dataclass
-class ViTToMe: # settings required for one ViT block
-    kv_mode: BSMToMe
-    q_mode: BSMToMe
+class PiToMe: # settings required to do pitome
+    r: float # Ratio of tokens to be merged
+    margin: float # Threshold for energy score
+    alpha: float # for ELU activation
+
+@dataclass
+class ToMeConfig:
+    mode: str # 'bsm' or 'pitome'
+    params: Union[BSMToMe, PiToMe]
+
+@dataclass
+class ViTToMeConfig:
+    kv: ToMeConfig # token merging strategy for key and value
+    q: ToMeConfig # token merging strategy for query
+
 
 # key - index of the ViT layer, value - the specific tome settings taken place in this block
-SAMToMeSetting = Dict[int, ViTToMe]
-
-# bsm_hq
-tome_cfg = {
-    "kv_mode": {
-        "kv_r": 0.6,
-        "kv_sx": 2,
-        "kv_sy": 2,
-    },
-    "q_mode": {
-        "q_r": 0.8,
-        "q_sx": 4,
-        "q_sy": 4,
-    }
-}
-
-tome_presets = {
-    'bsm_hq': [
-        dict(q_mode=None, kv_mode='bsm', kv_r=0.6, kv_sx=2, kv_sy=2),
-        dict(q_mode=None, kv_mode='bsm', kv_r=0.6, kv_sx=2, kv_sy=2),
-        dict(q_mode='bsm', kv_mode=None, q_r=0.8, q_sx=4, q_sy=4),
-        dict(q_mode='bsm', kv_mode=None, q_r=0.8, q_sx=4, q_sy=4)
-    ],
-    'bsm_fast': [
-        dict(q_mode=None, kv_mode='bsm_r2D', kv_r=0.9, kv_sx=4, kv_sy=4),
-        dict(q_mode=None, kv_mode='bsm_r2D', kv_r=0.9, kv_sx=4, kv_sy=4),
-        dict(q_mode='bsm_r2D', kv_mode=None, q_r=0.9, q_sx=4, q_sy=4),
-        dict(q_mode='bsm_r2D', kv_mode=None, q_r=0.9, q_sx=4, q_sy=4)
-    ],
-    'n2d_2x2': [
-        dict(q_mode='neighbor_2D', kv_mode=None, q_s=(2, 2)),
-        dict(q_mode='neighbor_2D', kv_mode=None, q_s=(2, 2)),
-        dict(q_mode='neighbor_2D', kv_mode=None, q_s=(2, 2)),
-        dict(q_mode='neighbor_2D', kv_mode=None, q_s=(2, 2))
-    ]
-}
+SAMToMeSetting = Dict[int, ViTToMeConfig]

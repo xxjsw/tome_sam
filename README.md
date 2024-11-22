@@ -54,18 +54,26 @@ tome_sam
 1. Define the required token merging parameters in a `dict`, where the key represents the exact layer index and its 
 value determines the bsm setting taken place in this ViT block.
 ```
-test_tome_setting: SAMToMeSetting = {
-    0: ViTToMe(
-        kv_mode=BSMToMe(r=0.6, sx=2, sy=2),
-        q_mode=BSMToMe(r=0.8, sx=4, sy=4),
+test_tome_setting = SAMToMeSetting = {
+    2: ViTToMeConfig(
+        kv=ToMeConfig(
+            mode='pitome',
+            params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
+        ),
+        q=ToMeConfig(
+            mode='pitome',
+            params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
+        )
     ),
-    3: ViTToMe(
-        kv_mode=BSMToMe(r=0.5, sx=3, sy=3),
-        q_mode=BSMToMe(r=0.7, sx=5, sy=5),
-    ),
-    5: ViTToMe(
-        kv_mode=BSMToMe(r=0.4, sx=1, sy=1),
-        q_mode=BSMToMe(r=0.9, sx=6, sy=6),
+    5: ViTToMeConfig(
+        kv=ToMeConfig(
+            mode='pitome',
+            params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
+        ),
+        q=ToMeConfig(
+            mode='pitome',
+            params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
+        )
     ),
 }
 ```

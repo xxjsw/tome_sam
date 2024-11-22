@@ -104,9 +104,6 @@ def bipartite_soft_matching_random2d(metric: torch.Tensor,
         metric = safe_normalize(metric, dim=-1)
         a, b = split(metric)
         scores = a @ b.transpose(-1, -2)
-        # print('src', a.shape, a)
-        # print('dst', b.shape, b)
-        # print('scores', scores.shape, scores)
 
         # Can't reduce more than the # tokens in src
         r = min(a.shape[1], r)

@@ -1,5 +1,6 @@
 from evaluate import EvaluateArgs, evaluate
 from tome_sam.utils.tome_presets import SAMToMeSetting, ViTToMeConfig, BSMToMe, ToMeConfig, PiToMe
+from flops import get_flops
 
 test_bsm_setting: SAMToMeSetting = {
     2: ViTToMeConfig(
@@ -100,5 +101,8 @@ evaluate_args = EvaluateArgs(
     tome_setting = test_pitome_setting,
 )
 
-results = evaluate(evaluate_args)
-print(results)
+iou_results = evaluate(evaluate_args)
+print(iou_results)
+
+flops_per_image = get_flops(evaluate_args)
+print(f'flops per image: {flops_per_image}')

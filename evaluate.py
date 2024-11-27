@@ -91,6 +91,7 @@ def evaluate(args: EvaluateArgs = None):
     metric_logger = misc.MetricLogger(delimiter="  ")
     print(f"valid dataloader length: {len(valid_dataloader)}")
 
+
     for data_val in metric_logger.log_every(valid_dataloader, 200):
         imidx, inputs, labels, shapes, labels_ori = data_val["imidx"], data_val["image"], data_val["label"], data_val["shape"], data_val["ori_label"]
 

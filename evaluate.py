@@ -1,4 +1,5 @@
 import json
+import os
 import random
 from typing import Tuple, List, Optional
 
@@ -11,6 +12,7 @@ import numpy as np
 from tome_sam.build_tome_sam import tome_sam_model_registry
 from tome_sam.utils import misc
 from tome_sam.utils.dataloader import ReadDatasetInput, get_im_gt_name_dict, create_dataloaders, Resize
+from tome_sam.utils.json_serialization import convert_to_serializable_dict
 from tome_sam.utils.tome_presets import SAMToMeSetting
 
 
@@ -131,10 +133,16 @@ def evaluate(args: EvaluateArgs = None):
     resstat = {k: meter.global_avg for k, meter in metric_logger.meters.items() if meter.count > 0}
     test_stats.update(resstat)
 
+    if args.output:
+        os.makedirs(args.output, exist_ok=True)
+        filename = os.path.join(args.output, 'ious.json')
+        with open(filename, 'w') as f:
+            json.dump({
+                'result': test_stats,
+                'evaluate_args': convert_to_serializable_dict(args)
+            }, f, indent=4, default=str)
+
     return test_stats
-
-
-
 
 
 def get_args_parser():
@@ -143,7 +151,7 @@ def get_args_parser():
     parser.add_argument('--dataset', choices=dataset_name_mapping.keys(), type=str,
                         required=True, help='Specify one of the available datasets: {}'
                         .format(", ".join(dataset_name_mapping.keys())))
-    parser.add_argument('--output', type=str, required=True,
+    parser.add_argument('--output', type=str, required=False,
                         help='Path to the directory where masks and evaluation results will be stored')
     parser.add_argument('--model_type', choices=['vit_b', 'vit_l', 'vit_h'], default='vit_b',
                         help='The type of SAM model to load')
@@ -324,4 +332,5 @@ dataset_name_mapping = {
 
 if __name__ == "__main__":
     args = parse_and_convert_args()
-    evaluate(args)
+    stats = evaluate(args)
+    print(f'The evaluation results: {stats}')

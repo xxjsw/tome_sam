@@ -1,3 +1,5 @@
+import json
+import os
 import random
 
 import numpy as np
@@ -9,6 +11,8 @@ from tome_sam.build_tome_sam import tome_sam_model_registry
 from tome_sam.utils import misc
 from tome_sam.utils.dataloader import get_im_gt_name_dict, create_dataloaders, Resize
 from fvcore.nn import FlopCountAnalysis
+
+from tome_sam.utils.json_serialization import convert_to_serializable_dict
 
 
 def get_flops(args: EvaluateArgs) -> float:
@@ -75,10 +79,20 @@ def get_flops(args: EvaluateArgs) -> float:
             flops.unsupported_ops_warnings(False).uncalled_modules_warnings(False)
             gflops.append((flops.total()/1e9)/args.batch_size)
 
-    return np.mean(gflops)
+    flops_per_image = np.mean(gflops)
+
+    if args.output:
+        os.makedirs(args.output, exist_ok=True)
+        filename = os.path.join(args.output, 'flops.json')
+        with open(filename, 'w') as f:
+            json.dump({
+                'flops/img': str(flops_per_image),
+                'evaluate_args': convert_to_serializable_dict(args),
+            }, f, indent=4, default=str)
+    return flops_per_image
 
 
 if __name__ == "__main__":
     args = parse_and_convert_args()
-    flops_per_image = get_flops(args)
-    print(f'Average flops per image: {flops_per_image}')
+    avg_flops = get_flops(args)
+    print(f'Average flops per image: {avg_flops}')

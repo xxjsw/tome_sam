@@ -78,8 +78,11 @@ test_tome_setting = SAMToMeSetting = {
 }
 ```
 
-2. Call `evaluate()` interface with all required arguments.
+2. Call iou or flops evaluation interface with all required arguments.
 ```
+from evaluate import EvaluateArgs, evaluate
+from flops import get_flops
+
 evaluate_args = EvaluateArgs(
     dataset="dis",
     output="",
@@ -93,7 +96,8 @@ evaluate_args = EvaluateArgs(
     tome_setting = test_tome_setting,
 )
 
-results = evaluate(evaluate_args)
+iou_results = evaluate(evaluate_args) # mask_iou and boundary_iou
+flops_per_image = get_flops(evaluate_args)
 ```
 
 It is also possible to run inference from command line by setting certain flags, please refer to the parser arguments defined in

@@ -9,7 +9,6 @@ from tome_sam.build_tome_sam import tome_sam_model_registry
 from tome_sam.utils import misc
 from tome_sam.utils.dataloader import get_im_gt_name_dict, create_dataloaders, Resize
 from fvcore.nn import FlopCountAnalysis
-from functools import partial
 
 
 def get_flops(args: EvaluateArgs) -> float:

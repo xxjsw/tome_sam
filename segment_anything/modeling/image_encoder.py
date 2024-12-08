@@ -299,7 +299,7 @@ def get_rel_pos(q_size: int, k_size: int, rel_pos: torch.Tensor) -> torch.Tensor
         rel_pos (Tensor): relative position embeddings (L, C).
 
     Returns:
-        Extracted positional embeddings according to relative positions.
+        Extracted decomposed positional embeddings according to relative positions.
     """
     max_rel_dist = int(2 * max(q_size, k_size) - 1)
     # Interpolate rel pos if needed.
@@ -346,11 +346,21 @@ def add_decomposed_rel_pos(
     """
     q_h, q_w = q_size
     k_h, k_w = k_size
+    # Decomposed relative position embeddings for each q-k pair (q_h/q_w, k_h/k_w, dim)
+    # The first two dimensions (q_h or q_w, k_h or k_w) represent all possible query-key position combinations
+    # The last dimension is the embedding vector for each of those query-key relative positions
+    # So if you imagine a specific query position i and a specific key position j, returned_tensor[i, j] would be
+    # a 64-dimensional vector representing the relative positional embedding between those two specific positions.
     Rh = get_rel_pos(q_h, k_h, rel_pos_h)
     Rw = get_rel_pos(q_w, k_w, rel_pos_w)
 
     B, _, dim = q.shape
     r_q = q.reshape(B, q_h, q_w, dim)
+    # Uses Einstein summation to compute relative horizontal positional embeddings
+    # r_q has shape (B, q_h, q_w, dim)
+    # Rh (horizontal relative position embedding) has shape (q_h, k_h, dim)
+    # Resulting rel_h will have shape (B, q_h, q_w, q_k)
+    # Calculates how each query position(q_h, q_w) relates to key positions(k_h)
     rel_h = torch.einsum("bhwc,hkc->bhwk", r_q, Rh)
     rel_w = torch.einsum("bhwc,wkc->bhwk", r_q, Rw)
 

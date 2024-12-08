@@ -39,7 +39,7 @@ def mps_gather_workaround(input, dim, index):
 def bipartite_soft_matching_random2d(metric: torch.Tensor,
                                      w: int, h: int, sx: int, sy: int, r: int,
                                      no_rand: bool = False,
-                                     generator: torch.Generator = None) -> Tuple[Callable, Callable]:
+                                     generator: torch.Generator = None)->Tuple[Callable, Callable]:
     """
     Partitions the tokens into src and dst and merges r tokens from src to dst.
     Dst tokens are partitioned by choosing one randomy in each (sx, sy) region.
@@ -117,15 +117,24 @@ def bipartite_soft_matching_random2d(metric: torch.Tensor,
         dst_idx = gather(node_idx[..., None], dim=-2, index=src_idx)
 
 
-    def merge(x: torch.Tensor, mode="mean") -> torch.Tensor:
+    def merge(x: torch.Tensor, mode="mean") -> Tuple[torch.Tensor, torch.Tensor]:
         src, dst = split(x)
         n, t1, c = src.shape
 
         unm = gather(src, dim=-2, index=unm_idx.expand(n, t1 - r, c))
         src = gather(src, dim=-2, index=src_idx.expand(n, r, c))
         dst = dst.scatter_reduce(-2, dst_idx.expand(n, r, c), src, reduce=mode)
+        merged_tensor = torch.cat([unm, dst], dim=1)
 
-        return torch.cat([unm, dst], dim=1)
+        # To find out indices w.r.t input tensor x, above unm_idx and src_idx are w.r.t src, dst_idx is w.r.t dst
+        # (B*num_heads, N_unm)
+        unm_absolute_indices = gather(a_idx.expand(n, a_idx.shape[1], 1), dim=1, index=unm_idx).squeeze(-1)
+        # (B*num_heads, N_dst)
+        dst_absolute_indices = b_idx.squeeze(-1).expand(n, -1)
+        indices = torch.cat([unm_absolute_indices, dst_absolute_indices], dim=1)
+
+        return merged_tensor, indices
+
 
     def unmerge(x: torch.Tensor) -> torch.Tensor:
         unm_len = unm_idx.shape[1]
@@ -144,5 +153,6 @@ def bipartite_soft_matching_random2d(metric: torch.Tensor,
                      src=src)
 
         return out
+
 
     return merge, unmerge

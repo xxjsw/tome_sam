@@ -57,7 +57,6 @@ def evaluate(args: EvaluateArgs = None):
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
-
     if args.device == 'cuda' and torch.cuda.is_available():
         device = torch.device('cuda')
     elif args.device == 'mps' and torch.backends.mps.is_available():
@@ -118,7 +117,7 @@ def evaluate(args: EvaluateArgs = None):
         with torch.no_grad():
             # batched output - list([dict(['masks', 'iou_predictions', 'low_res_logits'])])
             # masks - (image=1, masks per image, H, W)
-            batched_output = tome_sam(batched_input, multimask_output=False)
+            batched_output = tome_sam(batched_input, multimask_output=args.multiple_masks)
 
         pred_masks = torch.tensor(np.array([output['masks'][0].cpu() for
                                             output in batched_output])).float().to(device)

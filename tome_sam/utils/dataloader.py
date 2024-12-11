@@ -71,7 +71,7 @@ def create_dataloaders(name_im_gt_path: ReadDatasetOutput,
                        batch_size=1,
                        training=False) -> tuple[DataLoader, Dataset]:
 
-    num_workers_ = 0
+    num_workers_ = 1
     if batch_size > 1:
         num_workers_ = 2
     if batch_size > 4:

@@ -21,7 +21,7 @@ def get_flops(args: EvaluateArgs) -> dict:
     np.random.seed(seed)
     random.seed(seed)
 
-    gflops_sam = []
+    # gflops_sam = []
     gflops_image_encoder = []
 
     if args.device == 'cuda' and torch.cuda.is_available():
@@ -75,12 +75,16 @@ def get_flops(args: EvaluateArgs) -> dict:
             dict_input['original_size'] = imgs[b_i].shape[:2]
             batched_input.extend([dict_input])
 
+        """
         # flops evaluation on whole sam
         with torch.no_grad():
+            # because batched_input is a list of dictionary, not a normally expected tensor input, which is required for flops count
             flops = FlopCountAnalysis(tome_sam, (batched_input, args.multiple_masks))
             flops.unsupported_ops_warnings(False).uncalled_modules_warnings(False)
             gflops_sam.append((flops.total()/1e9)/args.batch_size)
+        """
 
+        tome_sam.to(device)
         image_encoder = tome_sam.image_encoder
         input_images = torch.stack([tome_sam.preprocess(x['image']) for x in batched_input], dim=0).to(device)
         # flops evaluation only on image encoder
@@ -89,7 +93,7 @@ def get_flops(args: EvaluateArgs) -> dict:
             flops.unsupported_ops_warnings(False).uncalled_modules_warnings(False)
             gflops_image_encoder.append((flops.total()/1e9)/args.batch_size)
 
-    sam_flops_per_image = np.mean(gflops_sam)
+    # sam_flops_per_image = np.mean(gflops_sam)
     image_encoder_flops_per_image = np.mean(gflops_image_encoder)
 
     if args.output:
@@ -97,13 +101,13 @@ def get_flops(args: EvaluateArgs) -> dict:
         filename = os.path.join(args.output, 'flops.json')
         with open(filename, 'w') as f:
             json.dump({
-                'flops/img(sam)': str(sam_flops_per_image),
+                # 'flops/img(sam)': str(sam_flops_per_image),
                 'flops/img(image_encoder)': str(image_encoder_flops_per_image),
                 'evaluate_args': convert_to_serializable_dict(args),
             }, f, indent=4, default=str)
 
     return {
-            'flops/img(sam)': sam_flops_per_image,
+            # 'flops/img(sam)': sam_flops_per_image,
             'flops/img(image_encoder)': image_encoder_flops_per_image
             }
 

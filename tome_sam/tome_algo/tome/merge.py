@@ -94,6 +94,7 @@ def bipartite_soft_matching_random2d(metric: torch.Tensor,
         a_idx = rand_idx[:, num_dst:, :]  # src
         b_idx = rand_idx[:, :num_dst, :]  # dst
 
+
         def split(x):
             C = x.shape[-1]
             src = gather(x, dim=1, index=a_idx.expand(B, N - num_dst, C))

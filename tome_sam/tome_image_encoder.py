@@ -16,18 +16,8 @@ from tome_sam.tome_algo.tome.merge import bipartite_soft_matching_random2d
 from segment_anything.modeling.image_encoder import Attention, ImageEncoderViT
 from .common import LayerNorm2d, MLPBlock
 from .tome_algo.pitome.merge import pitome_vision
-from .utils.tome_presets import SAMToMeSetting, ViTToMeConfig
+from .utils.tome_presets import SAMToMeSetting, ToMeConfig
 
-
-def mps_gather_workaround(input, dim, index):
-    if input.shape[-1] == 1:
-        return torch.gather(
-            input.unsqueeze(-1),
-            dim - 1 if dim < 0 else dim,
-            index.unsqueeze(-1)
-        ).squeeze(-1)
-    else:
-        return torch.gather(input, dim, index)
 
 # This class and its supporting functions below lightly adapted from the ViTDet backbone available at: https://github.com/facebookresearch/detectron2/blob/main/detectron2/modeling/backbone/vit.py # noqa
 class ToMeImageEncoderViT(ImageEncoderViT):
@@ -159,7 +149,7 @@ class Block(nn.Module):
             rel_pos_zero_init: bool = True,
             window_size: int = 0,
             input_size: Optional[Tuple[int, int]] = None,
-            tome_setting: ViTToMeConfig = None,
+            tome_setting: ToMeConfig = None,
     ) -> None:
         """
         Args:
@@ -225,7 +215,7 @@ class Block(nn.Module):
 class EfficientAttention(Attention):
     def __init__(
             self,
-            tome_setting: ViTToMeConfig,
+            tome_setting: ToMeConfig,
             dim: int,
             num_heads: int = 8,
             qkv_bias: bool = True,
@@ -244,80 +234,48 @@ class EfficientAttention(Attention):
         # X - (B * nHeads, N, C)
         x = x.reshape(B, H, W, self.num_heads, C).permute(0, 3, 1, 2, 4).reshape(B * self.num_heads, H * W, C)
 
-        x_q = x
-        x_kv = x
-
-        # token merging on q
-        x_merge, x_unmerge = Callable, Callable
-        if self.tome_setting.q.mode == 'bsm':
-            x_merge, x_unmerge = bipartite_soft_matching_random2d(
-                metric=x_q, w=W, h=H,
-                r=int(H * W * self.tome_setting.q.params.r),
-                sx=self.tome_setting.q.params.sx, sy=self.tome_setting.q.params.sy,
+        # token merging
+        merge, unmerge = Callable, Callable
+        if self.tome_setting.mode == 'bsm':
+            merge, unmerge = bipartite_soft_matching_random2d(
+                metric=x, w=W, h=H,
+                r=int(H * W * self.tome_setting.params.r),
+                sx=self.tome_setting.params.sx, sy=self.tome_setting.params.sy,
                 no_rand=True
             )
 
-        if self.tome_setting.q.mode == 'pitome':
-            x_merge, x_unmerge = pitome_vision(
-                metric=x_q, ratio=self.tome_setting.q.params.r,
-                margin=torch.tensor(self.tome_setting.q.params.margin),
-                alpha=self.tome_setting.q.params.alpha,
+        if self.tome_setting.mode == 'pitome':
+            merge, unmerge = pitome_vision(
+                metric=x, ratio=self.tome_setting.params.r,
+                margin=torch.tensor(self.tome_setting.params.margin),
+                alpha=self.tome_setting.params.alpha,
             )
 
-        # x_q_idx - (B*num_heads, Nq_reduced), which records the order of tokens w.r.t original input tensor
-        x_q, x_q_idx = x_merge(x_q)
 
-        _, Nq_reduced, _ = x_q.shape
-        # print("Nq_reduced", Nq_reduced)
-        # reshape x_q from (B*nHeads, Nq_reduced, C) to (B, Nq_reduced, C*nHeads)
-        x_q = x_q.reshape(B, self.num_heads, Nq_reduced, C).permute(0, 2, 1, 3).reshape(B, Nq_reduced, C*self.num_heads)
+        # x_reduced_idx - (B*num_heads, N_reduced), which records the order of tokens w.r.t original input tensor
+        x_reduced, x_reduced_idx = merge(x)
+        _, N_reduced, _ = x_reduced.shape
+        # reshape x_reduced from (B*nHeads, N_reduced, C) to (B, N_reduced, C*nHeads)
+        x_reduced = x_reduced.reshape(B, self.num_heads, N_reduced, C).permute(0, 2, 1, 3).reshape(B, N_reduced, C*self.num_heads)
         # qkv in shape of (B, Nq_reduced, C*nHeads*3)
-        qkv = self.qkv(x_q)
+        qkv = self.qkv(x_reduced)
         # qkv in shape of (3, B, nHeads, Nq_reduced, C)
-        qkv = qkv.reshape(B, Nq_reduced, 3, self.num_heads, C).permute(2, 0, 3, 1, 4)
+        qkv = qkv.reshape(B, N_reduced, 3, self.num_heads, C).permute(2, 0, 3, 1, 4)
         # q in shape of (B*nHeads, Nq_reduced, C)
-        q, _, _ = qkv.reshape(3, B*self.num_heads, Nq_reduced, C).unbind(0)
-
-        # token merging on kv
-        kv_merge = Callable
-        if self.tome_setting.kv.mode == 'bsm':
-            kv_merge, _, = bipartite_soft_matching_random2d(
-                metric=x_kv, w=W, h=H,
-                r=int(H * W * self.tome_setting.kv.params.r),
-                sx=self.tome_setting.kv.params.sx, sy=self.tome_setting.kv.params.sy,
-                no_rand=True
-            )
-
-        if self.tome_setting.kv.mode == 'pitome':
-            kv_merge, _ = pitome_vision(
-                metric=x_kv, ratio=self.tome_setting.kv.params.r,
-                margin=torch.tensor(self.tome_setting.kv.params.margin),
-                alpha=self.tome_setting.kv.params.alpha,
-            )
-
-        x_kv, x_kv_idx = kv_merge(x_kv)
-
-        _, Nkv_reduced, _ = x_kv.shape
-        # reshape x_kv from (B*nHeads, Nkv_reduced, C) to (B, Nkv_reduced, C*nHeads)
-        x_kv = x_kv.reshape(B, self.num_heads, Nkv_reduced, C).permute(0, 2, 1, 3).reshape(B, Nkv_reduced, C*self.num_heads)
-        # qkv in shape of (B, Nkv_reduced, C*nHeads*3)
-        qkv = self.qkv(x_kv)
-        # qkv in shape of (3, B, nHeads, Nkv_reduced, C)
-        qkv = qkv.reshape(B, Nkv_reduced, 3, self.num_heads, C).permute(2, 0, 3, 1, 4)
-        # q in shape of (B*nHeads, Nkv_reduced, C)
-        _, k, v = qkv.reshape(3, B*self.num_heads, Nkv_reduced, C).unbind(0)
+        q, k, v = qkv.reshape(3, B*self.num_heads, N_reduced, C).unbind(0)
 
         attn = (q * self.scale) @ k.transpose(-2, -1)
 
-
+        """
         if self.use_rel_pos:
-           attn = add_decomposed_rel_pos(attn, self.rel_pos_h, self.rel_pos_w,
+           attn = add_decomposed_rel_pos(attn, q, self.rel_pos_h, self.rel_pos_w,
                                          (H, W), (H, W), x_q_idx, x_kv_idx)
+        """
 
         attn = attn.softmax(dim=-1)
         x = attn @ v
         # token unmerge
-        x = x_unmerge(x)
+        x = unmerge(x)
         x = x.view(B, self.num_heads, H, W, -1).permute(0, 2, 3, 1, 4).reshape(B, H, W, -1)
         x = self.proj(x)
 
@@ -406,51 +364,19 @@ def get_rel_pos(q_size: int, k_size: int, rel_pos: torch.Tensor) -> torch.Tensor
     return rel_pos_resized[relative_coords.long()]
 
 
-def get_2d_indices(idx: torch.Tensor,width: int) -> Tuple[torch.Tensor, torch.Tensor]:
+def get_2d_indices(idx: torch.Tensor, width: int) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Convert 1D indices to 2D (row, col) indices for a grid of given width.
     """
     row_idx = idx // width
     col_idx = idx % width
+
     return row_idx, col_idx
-
-
-def batched_index_and_sum(Rh, q_row_idx, k_row_idx):
-    """
-    Index `Rh` based on `q_row_idx` and `k_row_idx` in a memory-efficient way, then sum over the last dimension.
-
-    Args:
-        Rh (torch.Tensor): Tensor of shape (B, q_h, k_h, c).
-        q_row_idx (torch.Tensor): Tensor of shape (B, n1).
-        k_row_idx (torch.Tensor): Tensor of shape (B, n2).
-
-    Returns:
-        torch.Tensor: Tensor of shape (B, n1, n2), summing over the last dimension of `Rh`.
-    """
-    B, q_h, k_h, c = Rh.shape
-    _, n1 = q_row_idx.shape
-    _, n2 = k_row_idx.shape
-
-    # Prepare output tensor
-    output = torch.zeros(B, n1, n2, device=Rh.device, dtype=Rh.dtype)
-
-    # Batch-wise computation
-    for b in range(B):
-        # Get batch-specific tensors
-        q_idx = q_row_idx[b]  # Shape (n1,)
-        k_idx = k_row_idx[b]  # Shape (n2,)
-
-        # Index into Rh for this batch
-        gathered = Rh[b, q_idx][:, k_idx]  # Shape (n1, n2, c)
-
-        # Sum over the last dimension (channels)
-        output[b] = gathered.sum(dim=-1)  # Shape (n1, n2)
-
-    return output
 
 
 def add_decomposed_rel_pos(
         attn: torch.Tensor,
+        q: torch.Tensor,
         rel_pos_h: torch.Tensor,
         rel_pos_w: torch.Tensor,
         q_size: Tuple[int, int],
@@ -466,48 +392,58 @@ def add_decomposed_rel_pos(
     Calculate decomposed Relative Positional Embeddings from :paper:`mvitv2`.
     https://github.com/facebookresearch/mvit/blob/19786631e330df9f3622e5402b4a419a263a2c80/mvit/models/attention.py   # noqa B950
     Args:
-        attn (Tensor): attention map.
+        attn (Tensor): attention map (B, N_q_reduced, N_k_reduced).
+        q (Tensor): query (B, N_q_reduced, C).
         rel_pos_h (Tensor): relative position embeddings (Lh, C) for height axis.
         rel_pos_w (Tensor): relative position embeddings (Lw, C) for width axis.
-        q_size (Tuple): spatial sequence size of query q with (q_h, q_w).
-        k_size (Tuple): spatial sequence size of key k with (k_h, k_w).
-        q_idx (Tensor): index of the merged query tokens w.r.t original query tokens.
-        k_idx (Tensor): index of the merged key tokens w.r.t original key tokens.
+        q_size (Tuple): ORIGINAL spatial sequence size of query q with (q_h, q_w).
+        k_size (Tuple): ORIGINAL spatial sequence size of key k with (k_h, k_w).
+        q_idx (Tensor): index of the merged query tokens w.r.t original query tokens (B, N_q_reduced).
+        k_idx (Tensor): index of the merged key tokens w.r.t original key tokens (B, N_k_reduced).
 
     Returns:
         attn (Tensor): attention map with added relative positional embeddings.
     """
 
-    B, N_q, N_k = attn.shape
     q_h, q_w = q_size
     k_h, k_w = k_size
 
-    Rh = get_rel_pos(q_h, k_h, rel_pos_h)
-    Rw = get_rel_pos(q_w, k_w, rel_pos_w)
-
-    # Broadcast Rh and Rw to have batch dimension
-    Rh = Rh.unsqueeze(0).expand(B, -1, -1, -1) # (B, q_h, k_h, c)
-    Rw = Rw.unsqueeze(0).expand(B, -1, -1, -1) # (B, q_w, k_w, c)
-
-    # print("Rh", Rh.shape, Rh)
-    # print("Rw", Rw.shape, Rw)
-    # print("attn", attn.shape)
-
     # Convert 1D indices to 2D(h-w) indices for queries and keys
-    q_row_idx, q_col_idx = get_2d_indices(q_idx, q_w)
-    k_row_idx, k_col_idx = get_2d_indices(k_idx, k_w)
-    # print("q_row_idx", q_row_idx.shape)
-    # print("k_row_idx", k_row_idx.shape)
-    print("1")
-    rel_pos_embedding_h = batched_index_and_sum(Rh, q_row_idx, k_row_idx)
-    print("2")
-    rel_pos_embedding_w = batched_index_and_sum(Rw, q_col_idx, k_col_idx)
-    print("3")
-    # print("rel_pos_embedding_h", rel_pos_embedding_h.shape)
-    # print("rel_pos_embedding_w", rel_pos_embedding_w.shape)
+    q_row_idx, q_col_idx = get_2d_indices(q_idx, q_w) # (B, N_q_reduced)
+    k_row_idx, k_col_idx = get_2d_indices(k_idx, k_w) # (B, N_k_reduced)
+
+    '''
+    rel_h_indices = q_row_idx[:, :, None] - k_row_idx[:, None, :] # (B, N_q_reduced, N_k_reduced)
+    rel_w_indices = q_col_idx[:, :, None] - k_col_idx[:, None, :] # (B, N_q_reduced, N_k_reduced)
+
+    # convert relative distances to the range [0, 2 * max(H, W) - 1]
+    rel_h_indices += q_h - 1
+    rel_w_indices += q_w - 1
+    
+    # extract relative positional embeddings
+    Rh = rel_pos_h[rel_h_indices.clamp(0, rel_pos_h.size(0) - 1)] # (B, N_q_reduced, N_k_reduced, C) Invalid buffer size: 12.00 GB
+    Rw = rel_pos_w[rel_w_indices.clamp(0, rel_pos_w.size(0) - 1)] # (B, N_q_reduced, N_k_reduced, C)
+    
+    # Add relative position embeddings to attention map
+    rel_pos_embeddings_h = torch.einsum('bqkc,bqkc->bqk', q.unsqueeze(2), Rh)
+    rel_pos_embeddings_w = torch.einsum('bqkc,bqkc->bqk', q.unsqueeze(2), Rw)
+    attn = attn + rel_pos_embeddings_h + rel_pos_embeddings_w
+    '''
+
+    rel_h_contrib = torch.zeros_like(attn) # (B, N_q_reduced, N_k_reduced)
+    for b in range(attn.size(0)):
+        q_row, k_row = q_row_idx[b], k_row_idx[b] # (N_q_reduced, )
+        rel_h_indices = q_row[:, None] - k_row[None, :] + (q_h - 1) # (N_q_reduced, N_k_reduced)
+        # clamp indices to valid range
+        rel_h_indices = rel_h_indices.clamp(0, rel_pos_h.size(0) - 1) # (N_q_reduced, N_k_reduced)
+
+        Rh = rel_pos_h[rel_h_indices] # (N_q_reduced, N_k_reduced, C)
+
+        q_b = q[b].unsqueeze(1)
+        rel_h_contrib[b] = torch.einsum('qkc,qkc->qk', q_b, Rh) # (N_q_reduced, N_k_reduced)
 
     # Add relative position embeddings to attention map
-    attn = attn + rel_pos_embedding_h + rel_pos_embedding_w
+    attn = attn + rel_h_contrib
 
     return attn
 

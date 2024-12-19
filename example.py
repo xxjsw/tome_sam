@@ -10,17 +10,17 @@ test_bsm_setting: SAMToMeSetting = {
         ),
         q=ToMeConfig(
             mode='bsm',
-            params=BSMToMe(r=0.6, sx=4, sy=4)
+            params=BSMToMe(r=0.6, sx=2, sy=2)
         )
     ),
     5: ViTToMeConfig(
         kv=ToMeConfig(
             mode='bsm',
-            params=BSMToMe(r=0.5, sx=3, sy=3)
+            params=BSMToMe(r=0.6, sx=2, sy=2)
         ),
         q=ToMeConfig(
             mode='bsm',
-            params=BSMToMe(r=0.6, sx=4, sy=4)
+            params=BSMToMe(r=0.6, sx=2, sy=2)
         )
     ),
     8: ViTToMeConfig(
@@ -30,7 +30,7 @@ test_bsm_setting: SAMToMeSetting = {
         ),
         q=ToMeConfig(
             mode='bsm',
-            params=BSMToMe(r=0.6, sx=4, sy=4)
+            params=BSMToMe(r=0.6, sx=2, sy=2)
         )
     ),
     11: ViTToMeConfig(
@@ -40,7 +40,7 @@ test_bsm_setting: SAMToMeSetting = {
         ),
         q=ToMeConfig(
             mode='bsm',
-            params=BSMToMe(r=0.6, sx=4, sy=4)
+            params=BSMToMe(r=0.6, sx=2, sy=2)
         )
     ),
 }

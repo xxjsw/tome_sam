@@ -274,7 +274,6 @@ class EfficientAttention(Attention):
                 sx=self.tome_setting.kv.params.sx, sy=self.tome_setting.kv.params.sy,
                 no_rand=True
             )
-
         if self.tome_setting.kv.mode == 'pitome':
             kv_merge, _ = pitome_vision(
                 metric=x_kv, ratio=self.tome_setting.kv.params.r,
@@ -293,6 +292,9 @@ class EfficientAttention(Attention):
         # q in shape of (B*nHeads, Nkv_reduced, C)
         _, k, v = qkv.reshape(3, B*self.num_heads, Nkv_reduced, C).unbind(0)
 
+        print('q', q[3, 1436, 24])
+        print('k', k[7, 277, 44])
+        print('v', v[6, 936, 14])
         attn = (q * self.scale) @ k.transpose(-2, -1)
 
         # TODO: How to handle relative position embedding after tokens being merged :(

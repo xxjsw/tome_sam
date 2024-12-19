@@ -1,90 +1,42 @@
 from evaluate import EvaluateArgs, evaluate
-from tome_sam.utils.tome_presets import SAMToMeSetting, ViTToMeConfig, BSMToMe, ToMeConfig, PiToMe
+from tome_sam.utils.tome_presets import SAMToMeSetting, ToMeConfig, BSMToMe, ToMeConfig, PiToMe
 from flops import get_flops
 
 test_bsm_setting: SAMToMeSetting = {
-    2: ViTToMeConfig(
-        kv=ToMeConfig(
+    2: ToMeConfig(
             mode='bsm',
             params=BSMToMe(r=0.6, sx=2, sy=2)
-        ),
-        q=ToMeConfig(
-            mode='bsm',
-            params=BSMToMe(r=0.6, sx=2, sy=2)
-        )
+            ),
+    5: ToMeConfig(
+        mode='bsm',
+        params=BSMToMe(r=0.6, sx=2, sy=2)
     ),
-    5: ViTToMeConfig(
-        kv=ToMeConfig(
-            mode='bsm',
-            params=BSMToMe(r=0.6, sx=2, sy=2)
-        ),
-        q=ToMeConfig(
-            mode='bsm',
-            params=BSMToMe(r=0.6, sx=2, sy=2)
-        )
+    8: ToMeConfig(
+        mode='bsm',
+        params=BSMToMe(r=0.6, sx=2, sy=2)
     ),
-    8: ViTToMeConfig(
-        kv=ToMeConfig(
-            mode='bsm',
-            params=BSMToMe(r=0.6, sx=2, sy=2)
-        ),
-        q=ToMeConfig(
-            mode='bsm',
-            params=BSMToMe(r=0.6, sx=2, sy=2)
-        )
-    ),
-    11: ViTToMeConfig(
-        kv=ToMeConfig(
-            mode='bsm',
-            params=BSMToMe(r=0.6, sx=2, sy=2)
-        ),
-        q=ToMeConfig(
-            mode='bsm',
-            params=BSMToMe(r=0.6, sx=2, sy=2)
-        )
+    11: ToMeConfig(
+        mode='bsm',
+        params=BSMToMe(r=0.6, sx=2, sy=2)
     ),
 }
 
 test_pitome_setting = SAMToMeSetting = {
-    2: ViTToMeConfig(
-        kv=ToMeConfig(
+    2: ToMeConfig(
             mode='pitome',
             params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
         ),
-        q=ToMeConfig(
-            mode='pitome',
-            params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
-        )
+    5: ToMeConfig(
+        mode='pitome',
+        params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
     ),
-    5: ViTToMeConfig(
-        kv=ToMeConfig(
-            mode='pitome',
-            params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
-        ),
-        q=ToMeConfig(
-            mode='pitome',
-            params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
-        )
+    8: ToMeConfig(
+        mode='pitome',
+        params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
     ),
-    8: ViTToMeConfig(
-        kv=ToMeConfig(
-            mode='pitome',
-            params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
-        ),
-        q=ToMeConfig(
-            mode='pitome',
-            params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
-        )
-    ),
-    11: ViTToMeConfig(
-        kv=ToMeConfig(
-            mode='pitome',
-            params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
-        ),
-        q=ToMeConfig(
-            mode='pitome',
-            params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
-        )
+    11: ToMeConfig(
+        mode='pitome',
+        params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
     ),
 }
 

@@ -3,7 +3,7 @@ from typing import Dict, Union
 
 
 @dataclass
-class BSMToMe: # settings required to do BSM
+class BSMToMe: # settings required to do BSM tome
     r: float  # Ratio of tokens to be merged
     sx: int   # Stride in the x dimension
     sy: int   # Stride in the y dimension
@@ -19,11 +19,6 @@ class ToMeConfig:
     mode: str # 'bsm' or 'pitome'
     params: Union[BSMToMe, PiToMe]
 
-@dataclass
-class ViTToMeConfig:
-    kv: ToMeConfig # token merging strategy for key and value
-    q: ToMeConfig # token merging strategy for query
-
 
 # key - index of the ViT layer, value - the specific tome settings taken place in this block
-SAMToMeSetting = Dict[int, ViTToMeConfig]
+SAMToMeSetting = Dict[int, ToMeConfig]

@@ -16,7 +16,7 @@ from tome_sam.tome_algo.tome.merge import bipartite_soft_matching_random2d
 from segment_anything.modeling.image_encoder import Attention, ImageEncoderViT
 from .common import LayerNorm2d, MLPBlock
 from .tome_algo.pitome.merge import pitome_vision
-from .utils.tome_presets import SAMToMeSetting, ViTToMeConfig
+from .utils.tome_presets import SAMToMeSetting, ToMeConfig
 
 
 # This class and its supporting functions below lightly adapted from the ViTDet backbone available at: https://github.com/facebookresearch/detectron2/blob/main/detectron2/modeling/backbone/vit.py # noqa
@@ -149,7 +149,7 @@ class Block(nn.Module):
             rel_pos_zero_init: bool = True,
             window_size: int = 0,
             input_size: Optional[Tuple[int, int]] = None,
-            tome_setting: ViTToMeConfig = None,
+            tome_setting: ToMeConfig = None,
     ) -> None:
         """
         Args:
@@ -215,7 +215,7 @@ class Block(nn.Module):
 class EfficientAttention(Attention):
     def __init__(
             self,
-            tome_setting: ViTToMeConfig,
+            tome_setting: ToMeConfig,
             dim: int,
             num_heads: int = 8,
             qkv_bias: bool = True,
@@ -234,67 +234,35 @@ class EfficientAttention(Attention):
         # X - (B * nHeads, N, C)
         x = x.reshape(B, H, W, self.num_heads, C).permute(0, 3, 1, 2, 4).reshape(B * self.num_heads, H * W, C)
 
-        x_q = x
-        x_kv = x
-
-        # token merging on q
+        # token merging on x
         x_merge, x_unmerge = Callable, Callable
-        if self.tome_setting.q.mode == 'bsm':
+        if self.tome_setting.mode == 'bsm':
             x_merge, x_unmerge = bipartite_soft_matching_random2d(
-                metric=x_q, w=W, h=H,
-                r=int(H * W * self.tome_setting.q.params.r),
-                sx=self.tome_setting.q.params.sx, sy=self.tome_setting.q.params.sy,
+                metric=x, w=W, h=H,
+                r=int(H * W * self.tome_setting.params.r),
+                sx=self.tome_setting.params.sx, sy=self.tome_setting.params.sy,
                 no_rand=True
             )
 
-        if self.tome_setting.q.mode == 'pitome':
+        if self.tome_setting.mode == 'pitome':
             x_merge, x_unmerge = pitome_vision(
-                metric=x_q, ratio=self.tome_setting.q.params.r,
-                margin=torch.tensor(self.tome_setting.q.params.margin),
-                alpha=self.tome_setting.q.params.alpha,
+                metric=x, ratio=self.tome_setting.params.r,
+                margin=torch.tensor(self.tome_setting.params.margin),
+                alpha=self.tome_setting.params.alpha,
             )
 
-        x_q = x_merge(x_q)
-        _, Nq_reduced, _ = x_q.shape
-        # reshape x_q from (B*nHeads, Nq_reduced, C) to (B, Nq_reduced, C*nHeads)
-        x_q = x_q.reshape(B, self.num_heads, Nq_reduced, C).permute(0, 2, 1, 3).reshape(B, Nq_reduced, C*self.num_heads)
-        # qkv in shape of (B, Nq_reduced, C*nHeads*3)
-        qkv = self.qkv(x_q)
-        # qkv in shape of (3, B, nHeads, Nq_reduced, C)
-        qkv = qkv.reshape(B, Nq_reduced, 3, self.num_heads, C).permute(2, 0, 3, 1, 4)
-        # q in shape of (B*nHeads, Nq_reduced, C)
-        q, _, _ = qkv.reshape(3, B*self.num_heads, Nq_reduced, C).unbind(0)
+        x_reduced = x_merge(x)
+        _, N_reduced, _ = x_reduced.shape
+        # reshape x from (B*nHeads, N_reduced, C) to (B, N_reduced, C*nHeads)
+        x_reduced = x_reduced.reshape(B, self.num_heads, N_reduced, C).permute(0, 2, 1, 3).reshape(B, N_reduced, C*self.num_heads)
+        # qkv in shape of (B, N_reduced, C*nHeads*3)
+        qkv = self.qkv(x_reduced)
+        # qkv in shape of (3, B, nHeads, N_reduced, C)
+        qkv = qkv.reshape(B, N_reduced, 3, self.num_heads, C).permute(2, 0, 3, 1, 4)
+        # q in shape of (B*nHeads, N_reduced, C)
+        q, k, v = qkv.reshape(3, B*self.num_heads, N_reduced, C).unbind(0)
 
-        # token merging on kv
-        kv_merge = Callable
-        if self.tome_setting.kv.mode == 'bsm':
-            kv_merge, _ = bipartite_soft_matching_random2d(
-                metric=x_kv, w=W, h=H,
-                r=int(H * W * self.tome_setting.kv.params.r),
-                sx=self.tome_setting.kv.params.sx, sy=self.tome_setting.kv.params.sy,
-                no_rand=True
-            )
-        if self.tome_setting.kv.mode == 'pitome':
-            kv_merge, _ = pitome_vision(
-                metric=x_kv, ratio=self.tome_setting.kv.params.r,
-                margin=torch.tensor(self.tome_setting.kv.params.margin),
-                alpha=self.tome_setting.kv.params.alpha,
-            )
 
-        x_kv = kv_merge(x_kv)
-        _, Nkv_reduced, _ = x_kv.shape
-        # reshape x_kv from (B*nHeads, Nkv_reduced, C) to (B, Nkv_reduced, C*nHeads)
-        x_kv = x_kv.reshape(B, self.num_heads, Nkv_reduced, C).permute(0, 2, 1, 3).reshape(B, Nkv_reduced, C*self.num_heads)
-        # qkv in shape of (B, Nkv_reduced, C*nHeads*3)
-        qkv = self.qkv(x_kv)
-        # qkv in shape of (3, B, nHeads, Nkv_reduced, C)
-        qkv = qkv.reshape(B, Nkv_reduced, 3, self.num_heads, C).permute(2, 0, 3, 1, 4)
-        # q in shape of (B*nHeads, Nkv_reduced, C)
-        _, k, v = qkv.reshape(3, B*self.num_heads, Nkv_reduced, C).unbind(0)
-
-        print('q', q[3, 1436, 24])
-        print('k', k[7, 277, 44])
-        print('v', v[6, 936, 14])
         attn = (q * self.scale) @ k.transpose(-2, -1)
 
         # TODO: How to handle relative position embedding after tokens being merged :(

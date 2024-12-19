@@ -98,7 +98,7 @@ evaluate_args = EvaluateArgs(
     input_size=[1024, 1024],
     batch_size=1,
     multiple_masks=False,
-    tome_setting = test_pitome_setting,
+    tome_setting = test_bsm_setting,
 )
 
 iou_results = evaluate(evaluate_args)

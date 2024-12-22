@@ -15,13 +15,14 @@ from fvcore.nn import FlopCountAnalysis
 from tome_sam.utils.json_serialization import convert_to_serializable_dict
 
 
-def get_flops(args: EvaluateArgs) -> float:
+def get_flops(args: EvaluateArgs) -> dict:
     seed = args.seed + misc.get_rank()
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
 
-    gflops = []
+    # gflops_sam = []
+    gflops_image_encoder = []
 
     if args.device == 'cuda' and torch.cuda.is_available():
         device = torch.device('cuda')
@@ -74,25 +75,44 @@ def get_flops(args: EvaluateArgs) -> float:
             dict_input['original_size'] = imgs[b_i].shape[:2]
             batched_input.extend([dict_input])
 
+        """
+        # flops evaluation on whole sam
         with torch.no_grad():
-            flops = FlopCountAnalysis(tome_sam, (batched_input, False))
+            # because batched_input is a list of dictionary, not a normally expected tensor input, which is required for flops count
+            flops = FlopCountAnalysis(tome_sam, (batched_input, args.multiple_masks))
             flops.unsupported_ops_warnings(False).uncalled_modules_warnings(False)
-            gflops.append((flops.total()/1e9)/args.batch_size)
+            gflops_sam.append((flops.total()/1e9)/args.batch_size)
+        """
 
-    flops_per_image = np.mean(gflops)
+        tome_sam.to(device)
+        image_encoder = tome_sam.image_encoder
+        input_images = torch.stack([tome_sam.preprocess(x['image']) for x in batched_input], dim=0).to(device)
+        # flops evaluation only on image encoder
+        with torch.no_grad():
+            flops = FlopCountAnalysis(image_encoder, input_images)
+            flops.unsupported_ops_warnings(False).uncalled_modules_warnings(False)
+            gflops_image_encoder.append((flops.total()/1e9)/args.batch_size)
+
+    # sam_flops_per_image = np.mean(gflops_sam)
+    image_encoder_flops_per_image = np.mean(gflops_image_encoder)
 
     if args.output:
         os.makedirs(args.output, exist_ok=True)
         filename = os.path.join(args.output, 'flops.json')
         with open(filename, 'w') as f:
             json.dump({
-                'flops/img': str(flops_per_image),
+                # 'flops/img(sam)': str(sam_flops_per_image),
+                'flops/img(image_encoder)': str(image_encoder_flops_per_image),
                 'evaluate_args': convert_to_serializable_dict(args),
             }, f, indent=4, default=str)
-    return flops_per_image
+
+    return {
+            # 'flops/img(sam)': sam_flops_per_image,
+            'flops/img(image_encoder)': image_encoder_flops_per_image
+            }
 
 
 if __name__ == "__main__":
     args = parse_and_convert_args()
     avg_flops = get_flops(args)
-    print(f'Average flops per image: {avg_flops}')
+    print(avg_flops)

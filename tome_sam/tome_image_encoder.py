@@ -251,7 +251,7 @@ class EfficientAttention(Attention):
                 alpha=self.tome_setting.params.alpha,
             )
 
-        x_reduced = x_merge(x)
+        x_reduced, sorted_indices = x_merge(x)
         _, N_reduced, _ = x_reduced.shape
         # reshape x from (B*nHeads, N_reduced, C) to (B, N_reduced, C*nHeads)
         x_reduced = x_reduced.reshape(B, self.num_heads, N_reduced, C).permute(0, 2, 1, 3).reshape(B, N_reduced, C*self.num_heads)
@@ -262,17 +262,16 @@ class EfficientAttention(Attention):
         # q in shape of (B*nHeads, N_reduced, C)
         q, k, v = qkv.reshape(3, B*self.num_heads, N_reduced, C).unbind(0)
 
-
         attn = (q * self.scale) @ k.transpose(-2, -1)
 
         # TODO: How to handle relative position embedding after tokens being merged :(
         # if self.use_rel_pos:
-            # attn = add_decomposed_rel_pos(attn, q, self.rel_pos_h, self.rel_pos_w, (H, W), (H, W))
+            # attn = add_decomposed_rel_pos(attn, q, self.rel_pos_h, self.rel_pos_w, (1, N_reduced), (1, N_reduced))
 
         attn = attn.softmax(dim=-1)
         x = attn @ v
         # token unmerge
-        x = x_unmerge(x)
+        x = x_unmerge(x, sorted_indices)
         x = x.view(B, self.num_heads, H, W, -1).permute(0, 2, 3, 1, 4).reshape(B, H, W, -1)
         x = self.proj(x)
 

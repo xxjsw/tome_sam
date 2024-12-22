@@ -1,5 +1,5 @@
 from evaluate import EvaluateArgs, evaluate
-from tome_sam.utils.tome_presets import SAMToMeSetting, ToMeConfig, BSMToMe, ToMeConfig, PiToMe
+from tome_sam.utils.tome_presets import SAMToMeSetting, BSMToMe, ToMeConfig, PiToMe
 from flops import get_flops
 
 test_bsm_setting: SAMToMeSetting = {
@@ -24,19 +24,19 @@ test_bsm_setting: SAMToMeSetting = {
 test_pitome_setting = SAMToMeSetting = {
     2: ToMeConfig(
             mode='pitome',
-            params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
+            params=PiToMe(r=0.1, margin=0.5, alpha=1.0)
         ),
     5: ToMeConfig(
         mode='pitome',
-        params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
+        params=PiToMe(r=0.1, margin=0.5, alpha=1.0)
     ),
     8: ToMeConfig(
         mode='pitome',
-        params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
+        params=PiToMe(r=0.1, margin=0.5, alpha=1.0)
     ),
     11: ToMeConfig(
         mode='pitome',
-        params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
+        params=PiToMe(r=0.1, margin=0.5, alpha=1.0)
     ),
 }
 
@@ -50,11 +50,11 @@ evaluate_args = EvaluateArgs(
     input_size=[1024, 1024],
     batch_size=1,
     multiple_masks=False,
-    tome_setting = test_bsm_setting,
+    tome_setting = test_pitome_setting,
 )
 
-iou_results = evaluate(evaluate_args)
-print(iou_results)
+# iou_results = evaluate(evaluate_args)
+# print(iou_results)
 
 flops_per_image = get_flops(evaluate_args)
-print(f'flops per image: {flops_per_image}')
+print(flops_per_image)

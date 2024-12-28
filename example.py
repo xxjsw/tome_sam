@@ -21,22 +21,22 @@ test_bsm_setting: SAMToMeSetting = {
     ),
 }
 
-test_pitome_setting = SAMToMeSetting = {
-    2: ToMeConfig(
+test_pitome_setting: SAMToMeSetting = {
+    1: ToMeConfig(
             mode='pitome',
-            params=PiToMe(r=0.1, margin=0.5, alpha=1.0)
+            params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
         ),
-    5: ToMeConfig(
+    4: ToMeConfig(
         mode='pitome',
-        params=PiToMe(r=0.1, margin=0.5, alpha=1.0)
+        params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
     ),
-    8: ToMeConfig(
+    7: ToMeConfig(
         mode='pitome',
-        params=PiToMe(r=0.1, margin=0.5, alpha=1.0)
+        params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
     ),
-    11: ToMeConfig(
+    10: ToMeConfig(
         mode='pitome',
-        params=PiToMe(r=0.1, margin=0.5, alpha=1.0)
+        params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
     ),
 }
 
@@ -53,8 +53,8 @@ evaluate_args = EvaluateArgs(
     tome_setting = test_pitome_setting,
 )
 
-# iou_results = evaluate(evaluate_args)
-# print(iou_results)
+iou_results = evaluate(evaluate_args)
+print(iou_results)
 
-flops_per_image = get_flops(evaluate_args)
-print(flops_per_image)
+#flops_per_image = get_flops(evaluate_args)
+#print(flops_per_image)

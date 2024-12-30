@@ -53,8 +53,8 @@ evaluate_args = EvaluateArgs(
     tome_setting = test_pitome_setting,
 )
 
-iou_results = evaluate(evaluate_args)
-print(iou_results)
+eval_results = evaluate(evaluate_args)
+print(eval_results)
 
 #flops_per_image = get_flops(evaluate_args)
 #print(flops_per_image)

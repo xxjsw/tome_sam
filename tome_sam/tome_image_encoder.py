@@ -227,13 +227,12 @@ class EfficientAttention(Attention):
         self.tome_setting = tome_setting
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # X - (B, H, W, C * nHeads)
+        # x - (B, H, W, C * nHeads)
         B, H, W, _ = x.shape
         C = _ // self.num_heads
 
-        # X - (B * nHeads, N, C)
-        x = x.reshape(B, H, W, self.num_heads, C).permute(0, 3, 1, 2, 4).reshape(B * self.num_heads, H * W, C)
-
+        # reshape to (B, N, _) required by token merging algo
+        x = x.reshape(B, H*W, _)
         # token merging on x
         x_merge, x_unmerge = Callable, Callable
         if self.tome_setting.mode == 'bsm':
@@ -250,11 +249,9 @@ class EfficientAttention(Attention):
                 margin=torch.tensor(self.tome_setting.params.margin),
                 alpha=self.tome_setting.params.alpha,
             )
-
         x_reduced = x_merge(x)
+        # x_reduced - (B, N_reduced, C * nHeads)
         _, N_reduced, _ = x_reduced.shape
-        # reshape x from (B*nHeads, N_reduced, C) to (B, N_reduced, C*nHeads)
-        x_reduced = x_reduced.reshape(B, self.num_heads, N_reduced, C).permute(0, 2, 1, 3).reshape(B, N_reduced, C*self.num_heads)
         # qkv in shape of (B, N_reduced, C*nHeads*3)
         qkv = self.qkv(x_reduced)
         # qkv in shape of (3, B, nHeads, N_reduced, C)
@@ -271,8 +268,9 @@ class EfficientAttention(Attention):
         attn = attn.softmax(dim=-1)
         x = attn @ v
         # token unmerge
+        x = x.reshape(B, N_reduced, C*self.num_heads)
         x = x_unmerge(x)
-        x = x.view(B, self.num_heads, H, W, -1).permute(0, 2, 3, 1, 4).reshape(B, H, W, -1)
+        x = x.reshape(B, H, W, -1)
         x = self.proj(x)
 
         return x

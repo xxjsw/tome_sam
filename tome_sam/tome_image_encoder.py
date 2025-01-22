@@ -231,8 +231,9 @@ class EfficientAttention(Attention):
         B, H, W, _ = x.shape
         C = _ // self.num_heads
 
-        # reshape to (B, N, _) required by token merging algo
-        x = x.reshape(B, H*W, _)
+        # reshape x to (B * nHeads, N, C), such that token merging can be applied across head
+        x = x.reshape(B, H, W, self.num_heads, C).permute(0, 3, 1, 2, 4).reshape(B * self.num_heads, H*W, C)
+
         # token merging on x
         x_merge, x_unmerge = Callable, Callable
         if self.tome_setting.mode == 'bsm':
@@ -249,15 +250,17 @@ class EfficientAttention(Attention):
                 margin=torch.tensor(self.tome_setting.params.margin),
                 alpha=self.tome_setting.params.alpha,
             )
+        # x_reduced - (B * nHeads, N_reduced, C)
         x_reduced = x_merge(x)
-        # x_reduced - (B, N_reduced, C * nHeads)
         _, N_reduced, _ = x_reduced.shape
-        # qkv in shape of (B, N_reduced, C*nHeads*3)
+        # reshape x_reduced to (B, N_reduced, nHeads*C)
+        x_reduced = x_reduced.view(B, self.num_heads, N_reduced, C).permute(0, 2, 1, 3).reshape(B, N_reduced, -1)
+        # qkv in shape of (B, N_reduced, 3*nHeads*C)
         qkv = self.qkv(x_reduced)
-        # qkv in shape of (3, B, nHeads, N_reduced, C)
-        qkv = qkv.reshape(B, N_reduced, 3, self.num_heads, C).permute(2, 0, 3, 1, 4)
-        # q in shape of (B*nHeads, N_reduced, C)
-        q, k, v = qkv.reshape(3, B*self.num_heads, N_reduced, C).unbind(0)
+        # qkv in shape of (3, B*nHeads, N_reduced, C)
+        qkv = qkv.view(B, N_reduced, 3, self.num_heads, C).permute(2, 0, 3, 1, 4).reshape(3, B*self.num_heads, N_reduced, C)
+        # q,k,v in shape of (B*nHeads, N_reduced, C)
+        q, k, v = qkv.unbind(0)
 
         attn = (q * self.scale) @ k.transpose(-2, -1)
 
@@ -268,9 +271,8 @@ class EfficientAttention(Attention):
         attn = attn.softmax(dim=-1)
         x = attn @ v
         # token unmerge
-        x = x.reshape(B, N_reduced, C*self.num_heads)
         x = x_unmerge(x)
-        x = x.reshape(B, H, W, -1)
+        x = x.view(B, self.num_heads, H, W, -1).permute(0, 2, 3, 1, 4).reshape(B, H, W, -1)
         x = self.proj(x)
 
         return x

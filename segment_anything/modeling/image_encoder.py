@@ -227,11 +227,10 @@ class Attention(nn.Module):
         qkv = self.qkv(x).reshape(B, H * W, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
         # q, k, v with shape (B * nHead, H * W, C)
         q, k, v = qkv.reshape(3, B * self.num_heads, H * W, -1).unbind(0)
-
         attn = (q * self.scale) @ k.transpose(-2, -1)
 
-        # if self.use_rel_pos:
-        #    attn = add_decomposed_rel_pos(attn, q, self.rel_pos_h, self.rel_pos_w, (H, W), (H, W))
+        if self.use_rel_pos:
+           attn = add_decomposed_rel_pos(attn, q, self.rel_pos_h, self.rel_pos_w, (H, W), (H, W))
 
         attn = attn.softmax(dim=-1)
         x = (attn @ v).view(B, self.num_heads, H, W, -1).permute(0, 2, 3, 1, 4).reshape(B, H, W, -1)
@@ -346,17 +345,20 @@ def add_decomposed_rel_pos(
     """
     q_h, q_w = q_size
     k_h, k_w = k_size
-    Rh = get_rel_pos(q_h, k_h, rel_pos_h)
-    Rw = get_rel_pos(q_w, k_w, rel_pos_w)
+    Rh = get_rel_pos(q_h, k_h, rel_pos_h) # (q_h, k_h, dim)
+    Rw = get_rel_pos(q_w, k_w, rel_pos_w) # (q_w, k_w, dim)
 
-    B, _, dim = q.shape
-    r_q = q.reshape(B, q_h, q_w, dim)
-    rel_h = torch.einsum("bhwc,hkc->bhwk", r_q, Rh)
-    rel_w = torch.einsum("bhwc,wkc->bhwk", r_q, Rw)
+    Rh = Rh.repeat_interleave(torch.tensor(q_w).to(Rh.device), dim=0)  # (n, k_h, dim)
+    Rw = Rw.repeat(q_h, 1, 1).view(q_h, q_w, k_w, -1).reshape(q_h*q_w, k_w, -1) # (n, k_h, dim)
 
-    attn = (
-        attn.view(B, q_h, q_w, k_h, k_w) + rel_h[:, :, :, :, None] + rel_w[:, :, :, None, :]
-    ).view(B, q_h * q_w, k_h * k_w)
+    B, N, dim = q.shape
+    rel_h = torch.einsum("bnc,nkc->bnk", q, Rh) # (b, n, k_h)
+    rel_w = torch.einsum("bnc,nkc->bnk", q, Rw) # (b, n, k_w)
+
+    rel_h_flat = rel_h.reshape(B, N, k_h, 1).expand(-1, -1, -1, k_w).reshape(B, q_h*q_w, k_h * k_w)
+    rel_w_flat = rel_w.reshape(B, N, 1, k_w).expand(-1, -1, k_h, -1).reshape(B, q_h*q_w, k_h * k_w)
+
+    attn = attn + rel_h_flat + rel_w_flat
 
     return attn
 

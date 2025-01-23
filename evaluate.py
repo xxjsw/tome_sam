@@ -16,6 +16,9 @@ from tome_sam.utils.dataloader import ReadDatasetInput, get_im_gt_name_dict, cre
 from tome_sam.utils.json_serialization import convert_to_serializable_dict
 from tome_sam.utils.tome_presets import SAMToMeSetting
 
+import warnings
+warnings.filterwarnings("ignore")
+
 
 def compute_iou_and_boundary_iou(preds, target) -> Tuple[torch.Tensor, torch.Tensor]:
     """

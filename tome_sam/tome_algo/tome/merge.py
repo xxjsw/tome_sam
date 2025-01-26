@@ -117,15 +117,23 @@ def bipartite_soft_matching_random2d(metric: torch.Tensor,
         dst_idx = gather(node_idx[..., None], dim=-2, index=src_idx)
 
 
-    def merge(x: torch.Tensor, mode="mean") -> torch.Tensor:
+    def merge(x: torch.Tensor, mode="mean") -> Tuple[torch.Tensor, torch.Tensor]:
         src, dst = split(x)
         n, t1, c = src.shape
 
         unm = gather(src, dim=-2, index=unm_idx.expand(n, t1 - r, c))
         src = gather(src, dim=-2, index=src_idx.expand(n, r, c))
         dst = dst.scatter_reduce(-2, dst_idx.expand(n, r, c), src, reduce=mode)
+        merged_tokens = torch.cat([unm, dst], dim=1)
 
-        return torch.cat([unm, dst], dim=1)
+        # To find out indices w.r.t input tensor x, above unm_idx and src_idx are w.r.t src, dst_idx is w.r.t dst
+        # (B*num_heads, N_unm)
+        unm_absolute_indices = gather(a_idx.expand(n, a_idx.shape[1], 1), dim=1, index=unm_idx).squeeze(-1)
+        # (B*num_heads, N_dst)
+        dst_absolute_indices = b_idx.squeeze(-1).expand(n, -1)
+        absolute_indices = torch.cat([unm_absolute_indices, dst_absolute_indices], dim=1)
+
+        return merged_tokens, absolute_indices
 
 
     def unmerge(x: torch.Tensor) -> torch.Tensor:

@@ -19,6 +19,17 @@ from .tome_algo.pitome.merge import pitome_vision
 from .utils.tome_presets import SAMToMeSetting, ToMeConfig
 
 
+def mps_gather_workaround(input, dim, index):
+    if input.shape[-1] == 1:
+        return torch.gather(
+            input.unsqueeze(-1),
+            dim - 1 if dim < 0 else dim,
+            index.unsqueeze(-1)
+        ).squeeze(-1)
+    else:
+        return torch.gather(input, dim, index)
+
+
 # This class and its supporting functions below lightly adapted from the ViTDet backbone available at: https://github.com/facebookresearch/detectron2/blob/main/detectron2/modeling/backbone/vit.py # noqa
 class ToMeImageEncoderViT(ImageEncoderViT):
     def __init__(
@@ -241,7 +252,7 @@ class EfficientAttention(Attention):
                 metric=x, w=W, h=H,
                 r=int(H * W * self.tome_setting.params.r),
                 sx=self.tome_setting.params.sx, sy=self.tome_setting.params.sy,
-                no_rand=True
+                no_rand=True,
             )
 
         if self.tome_setting.mode == 'pitome':
@@ -251,7 +262,7 @@ class EfficientAttention(Attention):
                 alpha=self.tome_setting.params.alpha,
             )
         # x_reduced - (B * nHeads, N_reduced, C)
-        x_reduced = x_merge(x)
+        x_reduced, merged_indices = x_merge(x)
         _, N_reduced, _ = x_reduced.shape
         # reshape x_reduced to (B, N_reduced, nHeads*C)
         x_reduced = x_reduced.view(B, self.num_heads, N_reduced, C).permute(0, 2, 1, 3).reshape(B, N_reduced, -1)
@@ -264,9 +275,10 @@ class EfficientAttention(Attention):
 
         attn = (q * self.scale) @ k.transpose(-2, -1)
 
-        # TODO: How to handle relative position embedding after tokens being merged :(
-        # if self.use_rel_pos:
-            # attn = add_decomposed_rel_pos(attn, q, self.rel_pos_h, self.rel_pos_w, (1, N_reduced), (1, N_reduced))
+        # TODO: Double check its correctness
+        if self.use_rel_pos:
+            attn = add_decomposed_rel_pos(attn, q, merged_indices,
+                                          self.rel_pos_h, self.rel_pos_w, (H, W), (H, W))
 
         attn = attn.softmax(dim=-1)
         x = attn @ v
@@ -363,38 +375,50 @@ def get_rel_pos(q_size: int, k_size: int, rel_pos: torch.Tensor) -> torch.Tensor
 def add_decomposed_rel_pos(
         attn: torch.Tensor,
         q: torch.Tensor,
+        absolute_indices: torch.Tensor,
         rel_pos_h: torch.Tensor,
         rel_pos_w: torch.Tensor,
         q_size: Tuple[int, int],
         k_size: Tuple[int, int],
 ) -> torch.Tensor:
     """
+    Make some adaptions after applying token merging.
     Calculate decomposed Relative Positional Embeddings from :paper:`mvitv2`.
     https://github.com/facebookresearch/mvit/blob/19786631e330df9f3622e5402b4a419a263a2c80/mvit/models/attention.py   # noqa B950
     Args:
         attn (Tensor): attention map.
-        q (Tensor): query q in the attention layer with shape (B, q_h * q_w, C).
+        q (Tensor): query q in the attention layer with shape (B, N_reduced, C).
+        absolute_indices (Tensor): Tensor that records the indices of merged tokens (B, N_reduced).
         rel_pos_h (Tensor): relative position embeddings (Lh, C) for height axis.
         rel_pos_w (Tensor): relative position embeddings (Lw, C) for width axis.
-        q_size (Tuple): spatial sequence size of query q with (q_h, q_w).
-        k_size (Tuple): spatial sequence size of key k with (k_h, k_w).
+        q_size (Tuple): spatial sequence size of query q BEFORE merging with (q_h, q_w).
+        k_size (Tuple): spatial sequence size of key k BEFORE merging with (k_h, k_w).
 
     Returns:
         attn (Tensor): attention map with added relative positional embeddings.
     """
+    gather = mps_gather_workaround if attn.device.type == "mps" else torch.gather
+
+    B, N_reduced, dim = q.shape
     q_h, q_w = q_size
     k_h, k_w = k_size
-    Rh = get_rel_pos(q_h, k_h, rel_pos_h)
-    Rw = get_rel_pos(q_w, k_w, rel_pos_w)
+    Rh = get_rel_pos(q_h, k_h, rel_pos_h) # (q_h, k_h, dim)
+    Rw = get_rel_pos(q_w, k_w, rel_pos_w) # (q_w, k_w, dim)
 
-    B, _, dim = q.shape
-    r_q = q.reshape(B, q_h, q_w, dim)
-    rel_h = torch.einsum("bhwc,hkc->bhwk", r_q, Rh)
-    rel_w = torch.einsum("bhwc,wkc->bhwk", r_q, Rw)
+    # Transform absolute indices to height indices and width indices for further decomposed RPE extraction
+    h_indices = absolute_indices // q_w # (B, N_reduced)
+    w_indices = absolute_indices % q_w # (B, N_reduced)
 
-    attn = (
-            attn.view(B, q_h, q_w, k_h, k_w) + rel_h[:, :, :, :, None] + rel_w[:, :, :, None, :]
-    ).view(B, q_h * q_w, k_h * k_w)
+    Rh_gathered = Rh[h_indices, :, :] # (B, N_reduced, k_w, dim)
+    Rw_gathered = Rw[w_indices, :, :] # (B, N_reduced, k_w, dim)
+
+    rel_h = torch.einsum("bnc,bnkc->bnk", q, Rh_gathered) # (B, N_reduced, k_h)
+    rel_w = torch.einsum("bnc,bnkc->bnk", q, Rw_gathered) # (B, N_reduced, k_w)
+
+    rel_h = gather(rel_h, dim=-1, index=h_indices.unsqueeze(1).expand(-1, N_reduced, -1)) # (B, N_reduced, N_reduced)
+    rel_w = gather(rel_w, dim=-1, index=w_indices.unsqueeze(1).expand(-1, N_reduced, -1)) # (B, N_reduced, N_reduced)
+
+    attn = attn + rel_h + rel_w
 
     return attn
 

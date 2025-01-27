@@ -126,7 +126,7 @@ def bipartite_soft_matching_random2d(metric: torch.Tensor,
         dst = dst.scatter_reduce(-2, dst_idx.expand(n, r, c), src, reduce=mode)
         merged_tokens = torch.cat([unm, dst], dim=1)
 
-        # To find out indices w.r.t input tensor x, above unm_idx and src_idx are w.r.t src, dst_idx is w.r.t dst
+        # To find out indices w.r.t input tensor x, above unm_idx and src_idx are w.r.t src(a_idx), dst_idx is w.r.t dst(b_idx)
         # (B*num_heads, N_unm)
         unm_absolute_indices = gather(a_idx.expand(n, a_idx.shape[1], 1), dim=1, index=unm_idx).squeeze(-1)
         # (B*num_heads, N_dst)

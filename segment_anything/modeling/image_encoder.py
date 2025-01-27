@@ -345,20 +345,17 @@ def add_decomposed_rel_pos(
     """
     q_h, q_w = q_size
     k_h, k_w = k_size
-    Rh = get_rel_pos(q_h, k_h, rel_pos_h) # (q_h, k_h, dim)
-    Rw = get_rel_pos(q_w, k_w, rel_pos_w) # (q_w, k_w, dim)
+    Rh = get_rel_pos(q_h, k_h, rel_pos_h)
+    Rw = get_rel_pos(q_w, k_w, rel_pos_w)
 
-    Rh = Rh.repeat_interleave(torch.tensor(q_w).to(Rh.device), dim=0)  # (n, k_h, dim)
-    Rw = Rw.repeat(q_h, 1, 1).view(q_h, q_w, k_w, -1).reshape(q_h*q_w, k_w, -1) # (n, k_h, dim)
+    B, _, dim = q.shape
+    r_q = q.reshape(B, q_h, q_w, dim)
+    rel_h = torch.einsum("bhwc,hkc->bhwk", r_q, Rh)
+    rel_w = torch.einsum("bhwc,wkc->bhwk", r_q, Rw)
 
-    B, N, dim = q.shape
-    rel_h = torch.einsum("bnc,nkc->bnk", q, Rh) # (b, n, k_h)
-    rel_w = torch.einsum("bnc,nkc->bnk", q, Rw) # (b, n, k_w)
-
-    rel_h_flat = rel_h.reshape(B, N, k_h, 1).expand(-1, -1, -1, k_w).reshape(B, q_h*q_w, k_h * k_w)
-    rel_w_flat = rel_w.reshape(B, N, 1, k_w).expand(-1, -1, k_h, -1).reshape(B, q_h*q_w, k_h * k_w)
-
-    attn = attn + rel_h_flat + rel_w_flat
+    attn = (
+        attn.view(B, q_h, q_w, k_h, k_w) + rel_h[:, :, :, :, None] + rel_w[:, :, :, None, :]
+    ).view(B, q_h * q_w, k_h * k_w)
 
     return attn
 

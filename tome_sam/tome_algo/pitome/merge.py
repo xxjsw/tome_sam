@@ -110,10 +110,8 @@ def pitome_bsm(
 
         # To find out indices w.r.t input tensor x, above unm_idx and src_idx are w.r.t src, dst_idx is w.r.t dst
         # (B*num_heads, N_unm)
-        unm_absolute_indices = gather(a_idx.expand(n, a_idx.shape[1], 1), dim=1, index=unm_idx).squeeze(-1)
-        # (B*num_heads, N_dst)
-        dst_absolute_indices = b_idx.squeeze(-1).expand(n, -1)
-        absolute_indices = torch.cat([unm_absolute_indices, dst_absolute_indices], dim=1)
+        unm_absolute_indices = gather(a_idx.unsqueeze(-1), dim=1, index=unm_idx).squeeze(-1)
+        absolute_indices = torch.cat([unm_absolute_indices, b_idx], dim=1)
 
         return merged_tokens, absolute_indices
 
@@ -141,7 +139,7 @@ def pitome_vision(
         ratio: float = 0, # ratio of tokens to be merged
         margin: torch.Tensor = 0.5, # for thresholding energy score #TODO: different margins among [0, 1]
         alpha=1.0, # for ELU activation
-        use_bsm_pitome=False,
+        use_bsm_pitome=True,
 ):
     with torch.no_grad():
         B, T, C = metric.shape

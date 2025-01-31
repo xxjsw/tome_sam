@@ -139,7 +139,7 @@ def pitome_vision(
         ratio: float = 0, # ratio of tokens to be merged
         margin: torch.Tensor = 0.5, # for thresholding energy score #TODO: different margins among [0, 1]
         alpha=1.0, # for ELU activation
-        use_bsm_pitome=True,
+        use_bsm_pitome=False,
 ):
     with torch.no_grad():
         B, T, C = metric.shape

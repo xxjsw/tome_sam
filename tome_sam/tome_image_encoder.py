@@ -409,7 +409,7 @@ def add_decomposed_rel_pos(
     h_indices = absolute_indices // q_w # (B, N_reduced)
     w_indices = absolute_indices % q_w # (B, N_reduced)
 
-    Rh_gathered = Rh[h_indices, :, :] # (B, N_reduced, k_w, dim)
+    Rh_gathered = Rh[h_indices, :, :] # (B, N_reduced, k_h, dim)
     Rw_gathered = Rw[w_indices, :, :] # (B, N_reduced, k_w, dim)
 
     rel_h = torch.einsum("bnc,bnkc->bnk", q, Rh_gathered) # (B, N_reduced, k_h)

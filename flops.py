@@ -14,6 +14,9 @@ from fvcore.nn import FlopCountAnalysis
 
 from tome_sam.utils.json_serialization import convert_to_serializable_dict
 
+import warnings
+warnings.filterwarnings("ignore")
+
 
 def get_flops(args: EvaluateArgs) -> dict:
     seed = args.seed + misc.get_rank()

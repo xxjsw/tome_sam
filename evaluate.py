@@ -1,6 +1,7 @@
 import json
 import os
 import random
+import time
 from typing import Tuple, List, Optional
 
 import torch
@@ -14,6 +15,9 @@ from tome_sam.utils import misc
 from tome_sam.utils.dataloader import ReadDatasetInput, get_im_gt_name_dict, create_dataloaders, Resize
 from tome_sam.utils.json_serialization import convert_to_serializable_dict
 from tome_sam.utils.tome_presets import SAMToMeSetting
+
+import warnings
+warnings.filterwarnings("ignore")
 
 
 def compute_iou_and_boundary_iou(preds, target) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -118,12 +122,14 @@ def evaluate(args: EvaluateArgs = None):
         with torch.no_grad():
             # batched output - list([dict(['masks', 'iou_predictions', 'low_res_logits'])])
             # masks - (image=1, masks per image, H, W)
+            t_start = time.time()
             batched_output = tome_sam(batched_input, multimask_output=False)
+            img_per_sec = round(len(batched_input)/(time.time() - t_start), 2)
 
         pred_masks = torch.tensor(np.array([output['masks'][0].cpu() for
                                             output in batched_output])).float().to(device)
         mask_iou, boundary_iou = compute_iou_and_boundary_iou(pred_masks, labels_ori)
-        loss_dict = {"mask_iou": mask_iou, "boundary_iou": boundary_iou}
+        loss_dict = {"mask_iou": mask_iou, "boundary_iou": boundary_iou, "im/s": img_per_sec}
         loss_dict_reduced = misc.reduce_dict(loss_dict)
         metric_logger.update(**loss_dict_reduced)
 

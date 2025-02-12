@@ -11,8 +11,8 @@ import torch.nn.functional as F
 
 from typing import Optional, Tuple, Type, Dict
 
-from tome_sam.tome_algo.tome.merge import bipartite_soft_matching_random2d
-
+from .tome_algo.tomesd.merge import bipartite_soft_matching_random2d
+from .tome_algo.tome.merge import bipartite_soft_matching
 from segment_anything.modeling.image_encoder import Attention, ImageEncoderViT
 from .common import LayerNorm2d, MLPBlock
 from .tome_algo.pitome.merge import pitome_vision
@@ -69,7 +69,7 @@ class ToMeImageEncoderViT(ImageEncoderViT):
             rel_pos_zero_init (bool): If True, zero initialize relative positional parameters.
             window_size (int): Window size for window attention blocks.
             global_attn_indexes (list): Indexes for blocks using global attention.
-            tome_setting(Dict[int, ViTToMe]): specify which layers to do token merging and the specific bsm tome parameters
+            tome_setting(Dict[int, ViTToMe]): specify which layers to do token merging and the specific bsm tomesd parameters
         """
         super().__init__()
         self.img_size = img_size
@@ -247,12 +247,17 @@ class EfficientAttention(Attention):
 
         # token merging on x
         x_merge, x_unmerge = Callable, Callable
-        if self.tome_setting.mode == 'bsm':
+        if self.tome_setting.mode == 'tomesd':
             x_merge, x_unmerge = bipartite_soft_matching_random2d(
                 metric=x, w=W, h=H,
                 r=int(H * W * self.tome_setting.params.r),
                 sx=self.tome_setting.params.sx, sy=self.tome_setting.params.sy,
-                no_rand=True,
+                no_rand=self.tome_setting.params.no_rand,
+            )
+
+        if self.tome_setting.mode == 'tome':
+            x_merge, x_unmerge = bipartite_soft_matching(
+                metric=x, r=int(H * W * self.tome_setting.params.r),
             )
 
         if self.tome_setting.mode == 'pitome':
@@ -261,6 +266,7 @@ class EfficientAttention(Attention):
                 margin=torch.tensor(self.tome_setting.params.margin),
                 alpha=self.tome_setting.params.alpha,
             )
+
         # x_reduced - (B * nHeads, N_reduced, C)
         x_reduced, merged_indices = x_merge(x)
         _, N_reduced, _ = x_reduced.shape

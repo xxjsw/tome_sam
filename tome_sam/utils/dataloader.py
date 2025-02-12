@@ -19,11 +19,24 @@ from torch.utils.data import Dataset, DataLoader, RandomSampler
 from torchvision import transforms
 from torchvision.transforms.functional import normalize
 import torch.nn.functional as F
-
+from torch.nn.utils.rnn import pad_sequence
 
 ### main modification: one dataset instead of a list of dataset, with type hint, remove unnecessary
 ### dictionary storages, remove distributed settings
 
+
+
+def custom_collate_fn(batch):
+    """Custom function to pad tensors to the same size."""
+    max_h = max(item.shape[1] for item in batch)  # Find max height
+    max_w = max(item.shape[2] for item in batch)  # Find max width
+    padded_batch = []
+    for img in batch:
+        c, h, w = img.shape
+        padded_img = torch.zeros((c, max_h, max_w))  # Create a zero-padded tensor
+        padded_img[:, :h, :w] = img  # Copy original data
+        padded_batch.append(padded_img)
+    return torch.stack(padded_batch)
 
 #### --------------------- dataloader online ---------------------####
 
@@ -71,7 +84,7 @@ def create_dataloaders(name_im_gt_path: ReadDatasetOutput,
                        batch_size=1,
                        training=False) -> tuple[DataLoader, Dataset]:
 
-    num_workers_ = 0
+    num_workers_ = 1
     if batch_size > 1:
         num_workers_ = 2
     if batch_size > 4:
@@ -85,14 +98,14 @@ def create_dataloaders(name_im_gt_path: ReadDatasetOutput,
         batch_sampler_train = torch.utils.data.BatchSampler(
             sampler, batch_size, drop_last=True)
         gos_dataloader = DataLoader(gos_dataset, batch_sampler=batch_sampler_train,
-                                    num_workers=num_workers_, pin_memory=False, persistent_workers=False)
+                                    num_workers=num_workers_)
 
     else:
         gos_dataset = OnlineDataset(name_im_gt_path, transform=transforms.Compose(my_transforms),
                                     eval_ori_resolution=True)
         sampler = RandomSampler(gos_dataset)
         gos_dataloader = DataLoader(gos_dataset, batch_size, sampler=sampler, drop_last=False,
-                                    num_workers=num_workers_, pin_memory=False, persistent_workers=False)
+                                    num_workers=num_workers_)
 
     return gos_dataloader, gos_dataset
 
@@ -118,10 +131,8 @@ class Resize(object):
 
     def __call__(self, sample):
         imidx, image, label, shape = sample['imidx'], sample['image'], sample['label'], sample['shape']
-
         image = torch.squeeze(F.interpolate(torch.unsqueeze(image, 0), self.size, mode='bilinear'), dim=0)
         label = torch.squeeze(F.interpolate(torch.unsqueeze(label, 0), self.size, mode='bilinear'), dim=0)
-
         return {'imidx': imidx, 'image': image, 'label': label, 'shape': torch.tensor(self.size)}
 
 

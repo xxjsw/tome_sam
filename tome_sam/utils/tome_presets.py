@@ -1,12 +1,16 @@
 from dataclasses import dataclass
 from typing import Dict, Union
 
+@dataclass
+class ToMe: # settings required to do tome
+    r: float  # Ratio of tokens to be merged
 
 @dataclass
-class BSMToMe: # settings required to do BSM tome
+class ToMeSD: # settings required to do tomesd
     r: float  # Ratio of tokens to be merged
     sx: int   # Stride in the x dimension
     sy: int   # Stride in the y dimension
+    no_rand: bool  # if true, disable randomness (use top left corner only)
 
 @dataclass
 class PiToMe: # settings required to do pitome
@@ -17,8 +21,8 @@ class PiToMe: # settings required to do pitome
 @dataclass
 class ToMeConfig:
     mode: str # 'bsm' or 'pitome'
-    params: Union[BSMToMe, PiToMe]
+    params: Union[ToMe, PiToMe, ToMeSD]
 
 
-# key - index of the ViT layer, value - the specific tome settings taken place in this block
+# key - index of the ViT layer, value - the specific tomesd settings taken place in this block
 SAMToMeSetting = Dict[int, ToMeConfig]

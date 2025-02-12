@@ -3,7 +3,7 @@
 ### Installation
 Refer to installation steps of the [Segment Anything repository](https://github.com/facebookresearch/segment-anything?tab=readme-ov-file#installation).
 
-The code requires python>=3.8, as well as pytorch>=1.7 and torchvision>=0.8. Please follow the instructions here to install both PyTorch and TorchVision dependencies. Installing both PyTorch and TorchVision with CUDA support is strongly recommended.
+The code requires `python>=3.8`, as well as `pytorch>=1.7` and `torchvision>=0.8`. Please follow the instructions here to install both PyTorch and TorchVision dependencies. Installing both PyTorch and TorchVision with CUDA support is strongly recommended.
 
 Install `tome_sam` repository and install with:
 ```
@@ -18,8 +18,11 @@ pip install opencv-python pycocotools matplotlib onnxruntime onnx
 ```
 
 ### Download Checkpoints
-Download the pre-trained SAM checkpoints:
+Create a directory and download the pre-trained SAM checkpoints into it:
 ```
+mkdir checkpoints
+cd checkpoints
+
 # ViT-B 
 wget https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth
 
@@ -48,31 +51,27 @@ tome_sam
 1. Define the required token merging parameters in a `dict`, where the key represents the exact layer index and its 
 value determines the bsm setting taken place in this ViT block.
 ```
-test_tome_setting = SAMToMeSetting = {
-    2: ViTToMeConfig(
-        kv=ToMeConfig(
-            mode='pitome',
-            params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
-        ),
-        q=ToMeConfig(
-            mode='pitome',
-            params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
-        )
+test_tome_setting: SAMToMeSetting = {
+    2: ToMeConfig(
+        mode='pitome',
+        params=PiToMe(r=0.5, margin=0.0, alpha=1.0)
     ),
-    5: ViTToMeConfig(
-        kv=ToMeConfig(
-            mode='pitome',
-            params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
-        ),
-        q=ToMeConfig(
-            mode='pitome',
-            params=PiToMe(r=0.5, margin=0.5, alpha=1.0)
-        )
+    5: ToMeConfig(
+        mode='pitome',
+        params=PiToMe(r=0.5, margin=0.0, alpha=1.0)
+    ),
+    8: ToMeConfig(
+        mode='pitome',
+        params=PiToMe(r=0.5, margin=0.0, alpha=1.0)
+    ),
+    11: ToMeConfig(
+        mode='pitome',
+        params=PiToMe(r=0.5, margin=0.0, alpha=1.0)
     ),
 }
 ```
 
-2. Call iou or flops evaluation interface with all required arguments.
+2. Call iou or flops evaluation with all required arguments.
 ```
 from evaluate import EvaluateArgs, evaluate
 from flops import get_flops

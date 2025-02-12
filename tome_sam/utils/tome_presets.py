@@ -20,7 +20,7 @@ class PiToMe: # settings required to do pitome
 
 @dataclass
 class ToMeConfig:
-    mode: str # 'bsm' or 'pitome'
+    mode: str # 'tome' or 'pitome' or 'tomesd'
     params: Union[ToMe, PiToMe, ToMeSD]
 
 

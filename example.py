@@ -26,15 +26,19 @@ tomesd_setting: SAMToMeSetting = {
 }
 
 tome_setting: SAMToMeSetting = {
-    2: ToMeConfig(
-        mode='tome',
-        params=ToMe(r=0.5)
-    ),
-    5: ToMeConfig(
+    7: ToMeConfig(
         mode='tome',
         params=ToMe(r=0.5)
     ),
     8: ToMeConfig(
+        mode='tome',
+        params=ToMe(r=0.5)
+    ),
+    9: ToMeConfig(
+        mode='tome',
+        params=ToMe(r=0.5)
+    ),
+    10: ToMeConfig(
         mode='tome',
         params=ToMe(r=0.5)
     ),

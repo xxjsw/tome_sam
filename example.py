@@ -67,18 +67,6 @@ pitome_setting: SAMToMeSetting = {
     ),
 }
 
-evaluate_args = EvaluateArgs(
-    dataset="dis",
-    output="",
-    model_type="vit_b",
-    checkpoint="checkpoints/sam_vit_b_01ec64.pth",
-    device="mps",
-    seed=0,
-    input_size=[1024, 1024],
-    batch_size=1,
-    multiple_masks=False,
-    tome_setting=tomesd_setting,
-)
 
 if __name__ == '__main__':
     test_cases = [None, tome_setting, pitome_setting, tomesd_setting]

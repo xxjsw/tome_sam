@@ -38,12 +38,6 @@ dataset with the following structure:
 tome_sam
 |____data
    |____DIS5K
-   |____cascade_psp
-   | |____DUTS-TE
-   | |____DUTS-TR
-   | |____ecssd
-   | |____fss_all
-   | |____MSRA_10K
    |____thin_object_detection
    | |____COIFT
    | |____HRSOD

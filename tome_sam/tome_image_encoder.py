@@ -247,12 +247,18 @@ class EfficientAttention(Attention):
 
         # token merging on x
         x_merge, x_unmerge = Callable, Callable
+
         if self.tome_setting.mode == 'tomesd':
+            generator = None
+            if not self.tome_setting.params.no_rand:
+                generator = torch.Generator().manual_seed(42)
+
             x_merge, x_unmerge = bipartite_soft_matching_random2d(
                 metric=x, w=W, h=H,
                 r=int(H * W * self.tome_setting.params.r),
                 sx=self.tome_setting.params.sx, sy=self.tome_setting.params.sy,
                 no_rand=self.tome_setting.params.no_rand,
+                generator=generator,
             )
 
         if self.tome_setting.mode == 'tome':

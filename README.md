@@ -18,11 +18,8 @@ pip install opencv-python pycocotools matplotlib onnxruntime onnx
 ```
 
 ### Download Checkpoints
-Create a directory and download the pre-trained SAM checkpoints into it:
+Create a directory `checkpoints` directly inside the root directory and download the pre-trained SAM checkpoints into it:
 ```
-mkdir checkpoints
-cd checkpoints
-
 # ViT-B 
 wget https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth
 

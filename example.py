@@ -80,7 +80,7 @@ if __name__ == '__main__':
             output="",
             model_type="vit_b",
             checkpoint="checkpoints/sam_vit_b_01ec64.pth",
-            device="mps",
+            device="mps", # change to 'cuda'
             seed=42,
             input_size=[1024, 1024],
             batch_size=1,

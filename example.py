@@ -81,7 +81,7 @@ if __name__ == '__main__':
             model_type="vit_b",
             checkpoint="checkpoints/sam_vit_b_01ec64.pth",
             device="mps",
-            seed=0,
+            seed=42,
             input_size=[1024, 1024],
             batch_size=1,
             multiple_masks=False,

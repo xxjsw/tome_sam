@@ -14,6 +14,23 @@ import torch
 def do_nothing(x: torch.Tensor, mode: str = None):
     return x
 
+def safe_normalize(x: torch.Tensor, dim: int=-1, eps: float=1e-12):
+    """
+    Safely normalize a tensor by handling zero vectors.
+    Args:
+        x: Input tensor of shape (B, N, C)
+        dim: Dimension along which to normalize
+        eps: epsilon to prevent division by zero
+    Returns:
+        Normalized tensor with same shape as input
+    """
+    norm = x.norm(dim=dim, keepdim=True)
+    zero_mask = (norm < eps).squeeze(dim)
+    norm = norm.clamp(min=eps)
+    x = x / norm
+    x[zero_mask] = 0.0
+
+    return x
 
 def mps_gather_workaround(input, dim, index):
     if input.shape[-1] == 1:
@@ -58,7 +75,7 @@ def bipartite_soft_matching(
         return do_nothing, do_nothing
 
     with torch.no_grad():
-        metric = metric / metric.norm(dim=-1, keepdim=True)
+        metric = safe_normalize(metric, dim=-1)
         a, b = metric[..., ::2, :], metric[..., 1::2, :]
         scores = a @ b.transpose(-1, -2)
 

@@ -45,6 +45,7 @@ tome_sam
 ```
 ### Inference
 `example.py` provides an example of how to run inference with specified token merging setting for each ViT block.
+0. Choose the merging methods, including Tome, Tome for diffusion (ToMeSD), and PiToMe at lines ...
 1. Define the required token merging parameters in a `dict`, where the key represents the exact layer index and its 
 value determines the bsm setting taken place in this ViT block.
 ```

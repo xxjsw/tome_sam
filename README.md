@@ -94,3 +94,9 @@ flops_per_image = get_flops(evaluate_args)
 It is also possible to run inference from command line by setting certain flags, please refer to the parser arguments defined in
 `evaluate.py`
 
+### Questions
+
+1. I removed the class_token in Pitome. Does it impact to model performance?
+2. There is something with zero padding, Do we need to modify normalize function in PiToMe?
+   For (2), I will do some modify ..
+   

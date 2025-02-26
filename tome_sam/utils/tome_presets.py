@@ -3,7 +3,7 @@ from typing import Dict, Union, Literal
 
 
 @dataclass
-class ToMe: # settings required to do tome
+class ToMe: # settings required to do tome or tome25
     r: float  # Ratio of tokens to be merged
 
 @dataclass
@@ -12,10 +12,6 @@ class ToMeSD: # settings required to do tomesd
     sx: int   # Stride in the x dimension
     sy: int   # Stride in the y dimension
     no_rand: bool  # if true, disable randomness (use top left corner only)
-
-@dataclass
-class ToMe25: # randomly select 25% tokens as dst tokens
-    r: float # Ratio of tokens to be merged
 
 @dataclass
 class PiToMe: # settings required to do pitome

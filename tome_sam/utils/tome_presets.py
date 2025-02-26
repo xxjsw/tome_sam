@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from typing import Dict, Union
+from typing import Dict, Union, Literal
+
 
 @dataclass
 class ToMe: # settings required to do tome
@@ -13,6 +14,10 @@ class ToMeSD: # settings required to do tomesd
     no_rand: bool  # if true, disable randomness (use top left corner only)
 
 @dataclass
+class ToMe25: # randomly select 25% tokens as dst tokens
+    r: float # Ratio of tokens to be merged
+
+@dataclass
 class PiToMe: # settings required to do pitome
     r: float # Ratio of tokens to be merged
     margin: float # Threshold for energy score
@@ -20,7 +25,7 @@ class PiToMe: # settings required to do pitome
 
 @dataclass
 class ToMeConfig:
-    mode: str # 'tome' or 'pitome' or 'tomesd'
+    mode: Literal['tome', 'pitome', 'tomesd', 'tome25']
     params: Union[ToMe, PiToMe, ToMeSD]
 
 

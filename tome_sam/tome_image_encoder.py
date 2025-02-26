@@ -11,7 +11,7 @@ import torch.nn.functional as F
 
 from typing import Optional, Tuple, Type, Dict
 
-from .tome_algo.tomesd.merge import bipartite_soft_matching_random2d
+from .tome_algo.tomesd.merge import bipartite_soft_matching_random2d, random_25_bipartite_soft_matching
 from .tome_algo.tome.merge import bipartite_soft_matching
 from segment_anything.modeling.image_encoder import Attention, ImageEncoderViT
 from .common import LayerNorm2d, MLPBlock
@@ -242,12 +242,9 @@ class EfficientAttention(Attention):
         B, H, W, _ = x.shape
         C = _ // self.num_heads
 
-        # reshape x to (B * nHeads, N, C), such that token merging can be applied across head
-        x = x.reshape(B, H, W, self.num_heads, C).permute(0, 3, 1, 2, 4).reshape(B * self.num_heads, H*W, C)
-
+        x = x.reshape(B, H*W, -1)
         # token merging on x
         x_merge, x_unmerge = Callable, Callable
-
         if self.tome_setting.mode == 'tomesd':
             generator = None
             if not self.tome_setting.params.no_rand:
@@ -258,6 +255,13 @@ class EfficientAttention(Attention):
                 r=int(H * W * self.tome_setting.params.r),
                 sx=self.tome_setting.params.sx, sy=self.tome_setting.params.sy,
                 no_rand=self.tome_setting.params.no_rand,
+                generator=generator,
+            )
+
+        if self.tome_setting.mode == 'tome25':
+            generator = torch.Generator().manual_seed(42)
+            x_merge, x_unmerge = random_25_bipartite_soft_matching(
+                metric=x, r=int(H * W * self.tome_setting.params.r),
                 generator=generator,
             )
 
@@ -273,11 +277,9 @@ class EfficientAttention(Attention):
                 alpha=self.tome_setting.params.alpha,
             )
 
-        # x_reduced - (B * nHeads, N_reduced, C)
+        # x_reduced - (B, N_reduced, C*nHeads)
         x_reduced, merged_indices = x_merge(x)
         _, N_reduced, _ = x_reduced.shape
-        # reshape x_reduced to (B, N_reduced, nHeads*C)
-        x_reduced = x_reduced.view(B, self.num_heads, N_reduced, C).permute(0, 2, 1, 3).reshape(B, N_reduced, -1)
         # qkv in shape of (B, N_reduced, 3*nHeads*C)
         qkv = self.qkv(x_reduced)
         # qkv in shape of (3, B*nHeads, N_reduced, C)
@@ -294,9 +296,11 @@ class EfficientAttention(Attention):
 
         attn = attn.softmax(dim=-1)
         x = attn @ v
+        # reshape x from (B*nHeads, N_reduced, C) to (B, N_reduced, C*nHeads) for unmerging
+        x = x.view(B, self.num_heads, N_reduced, -1).permute(0, 2, 1, 3).reshape(B, N_reduced, -1)
         # token unmerge
-        x = x_unmerge(x)
-        x = x.view(B, self.num_heads, H, W, -1).permute(0, 2, 3, 1, 4).reshape(B, H, W, -1)
+        x = x_unmerge(x)  # (B, N, C*nHeads)
+        x = x.reshape(B, H, W, -1) # (B, H, W, C*nHeads)
         x = self.proj(x)
 
         return x
@@ -399,7 +403,7 @@ def add_decomposed_rel_pos(
     https://github.com/facebookresearch/mvit/blob/19786631e330df9f3622e5402b4a419a263a2c80/mvit/models/attention.py   # noqa B950
     Args:
         attn (Tensor): attention map.
-        q (Tensor): query q in the attention layer with shape (B, N_reduced, C).
+        q (Tensor): query q in the attention layer with shape (B*nHeads, N_reduced, C).
         absolute_indices (Tensor): Tensor that records the indices of merged tokens (B, N_reduced).
         rel_pos_h (Tensor): relative position embeddings (Lh, C) for height axis.
         rel_pos_w (Tensor): relative position embeddings (Lw, C) for width axis.
@@ -411,7 +415,7 @@ def add_decomposed_rel_pos(
     """
     gather = mps_gather_workaround if attn.device.type == "mps" else torch.gather
 
-    B, N_reduced, dim = q.shape
+    _, N_reduced, dim = q.shape
     q_h, q_w = q_size
     k_h, k_w = k_size
     Rh = get_rel_pos(q_h, k_h, rel_pos_h) # (q_h, k_h, dim)
@@ -421,14 +425,20 @@ def add_decomposed_rel_pos(
     h_indices = absolute_indices // q_w # (B, N_reduced)
     w_indices = absolute_indices % q_w # (B, N_reduced)
 
-    Rh_gathered = Rh[h_indices, :, :] # (B, N_reduced, k_h, dim)
-    Rw_gathered = Rw[w_indices, :, :] # (B, N_reduced, k_w, dim)
+    nHeads = torch.tensor(q.shape[0] // absolute_indices.shape[0], device=q.device)
 
-    rel_h = torch.einsum("bnc,bnkc->bnk", q, Rh_gathered) # (B, N_reduced, k_h)
-    rel_w = torch.einsum("bnc,bnkc->bnk", q, Rw_gathered) # (B, N_reduced, k_w)
+    # As merging indices are same for all heads
+    h_indices = h_indices.repeat_interleave(nHeads, dim=0) # (B*nHeads, N_reduced)
+    w_indices = w_indices.repeat_interleave(nHeads, dim=0) # (B*nHeads, N_reduced)
 
-    rel_h = gather(rel_h, dim=-1, index=h_indices.unsqueeze(1).expand(-1, N_reduced, -1)) # (B, N_reduced, N_reduced)
-    rel_w = gather(rel_w, dim=-1, index=w_indices.unsqueeze(1).expand(-1, N_reduced, -1)) # (B, N_reduced, N_reduced)
+    Rh_gathered = Rh[h_indices, :, :] # (B*nHeads, N_reduced, k_h, dim)
+    Rw_gathered = Rw[w_indices, :, :] # (B*nHeads, N_reduced, k_w, dim)
+
+    rel_h = torch.einsum("bnc,bnkc->bnk", q, Rh_gathered) # (B*nHeads, N_reduced, k_h)
+    rel_w = torch.einsum("bnc,bnkc->bnk", q, Rw_gathered) # (B*nHeads, N_reduced, k_w)
+
+    rel_h = gather(rel_h, dim=-1, index=h_indices.unsqueeze(1).expand(-1, N_reduced, -1)) # (B*nHeads, N_reduced, N_reduced)
+    rel_w = gather(rel_w, dim=-1, index=w_indices.unsqueeze(1).expand(-1, N_reduced, -1)) # (B*nHeads, N_reduced, N_reduced)
 
     attn = attn + rel_h + rel_w
 

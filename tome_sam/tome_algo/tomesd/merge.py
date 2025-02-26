@@ -154,3 +154,89 @@ def bipartite_soft_matching_random2d(metric: torch.Tensor,
         return out
 
     return merge, unmerge
+
+
+def random_25_bipartite_soft_matching(metric: torch.Tensor,
+                                     r: int,
+                                     generator: torch.Generator = None) -> Tuple[Callable, Callable]:
+    """
+    Partitions the tokens into src and dst and merges r tokens from src to dst.
+    Dst tokens are partitioned by choosing one randomy in each (sx, sy) region.
+
+    Args:
+     - metric [B, N, C]: metric to use for similarity
+     - r: number of tokens to remove (by merging)
+     - generator: random seed.
+    """
+    B, N, _ = metric.shape
+
+    if r <= 0:
+        return do_nothing, do_nothing
+
+    gather = mps_gather_workaround if metric.device.type == "mps" else torch.gather
+
+    with torch.no_grad():
+        rand_idx = torch.rand(B, N, 1, device=metric.device, generator=generator).argsort(dim=1)
+        num_dst = int(N*0.25)
+        a_idx, b_idx = rand_idx[:, num_dst:, :], rand_idx[:, :num_dst, :]   # src, dst
+
+        def split(x):
+            C = x.shape[-1]
+            src = gather(x, dim=1, index=a_idx.expand(B, N - num_dst, C))
+            dst = gather(x, dim=1, index=b_idx.expand(B, num_dst, C))
+            return src, dst
+
+        # Cosine similarity between A and B
+        metric = safe_normalize(metric, dim=-1)
+        a, b = split(metric)
+        scores = a @ b.transpose(-1, -2)
+
+        # Can't reduce more than the # tokens in src
+        r = min(a.shape[1], r)
+
+        # Find the most similar greedily
+        node_max, node_idx = scores.max(dim=-1)
+        edge_idx = node_max.argsort(dim=-1, descending=True)[..., None]
+
+        unm_idx = edge_idx[..., r:, :]  # Unmerged Tokens
+        src_idx = edge_idx[..., :r, :]  # Merged Tokens
+        dst_idx = gather(node_idx[..., None], dim=-2, index=src_idx)
+
+
+    def merge(x: torch.Tensor, mode="mean") -> Tuple[torch.Tensor, torch.Tensor]:
+        src, dst = split(x)
+        n, t1, c = src.shape
+
+        unm = gather(src, dim=-2, index=unm_idx.expand(n, t1 - r, c))
+        src = gather(src, dim=-2, index=src_idx.expand(n, r, c))
+        dst = dst.scatter_reduce(-2, dst_idx.expand(n, r, c), src, reduce=mode)
+        merged_tokens = torch.cat([unm, dst], dim=1)
+
+        # To find out indices w.r.t input tensor x, above unm_idx and src_idx are w.r.t src(a_idx), dst_idx is w.r.t dst(b_idx)
+        # (B*num_heads, N_unm)
+        unm_absolute_indices = gather(a_idx.expand(n, a_idx.shape[1], 1), dim=1, index=unm_idx).squeeze(-1)
+        # (B*num_heads, N_dst)
+        dst_absolute_indices = b_idx.squeeze(-1).expand(n, -1)
+        absolute_indices = torch.cat([unm_absolute_indices, dst_absolute_indices], dim=1)
+
+        return merged_tokens, absolute_indices
+
+
+    def unmerge(x: torch.Tensor) -> torch.Tensor:
+        _, _, c = x.shape
+        unm_len = unm_idx.shape[1]
+        unm, dst = x[..., :unm_len, :], x[..., unm_len:, :]
+
+        src = gather(dst, dim=-2, index=dst_idx.expand(B, r, c))
+        # Combine back to the original shape
+        out = torch.zeros(B, N, c, device=x.device, dtype=x.dtype)
+        out.scatter_(dim=-2, index=b_idx.expand(B, num_dst, c), src=dst)
+        out.scatter_(dim=-2,
+                     index=gather(a_idx.expand(B, a_idx.shape[1], 1), dim=1, index=unm_idx).expand(B, unm_len, c),
+                     src=unm)
+        out.scatter_(dim=-2, index=gather(a_idx.expand(B, a_idx.shape[1], 1), dim=1, index=src_idx).expand(B, r, c),
+                     src=src)
+
+        return out
+
+    return merge, unmerge

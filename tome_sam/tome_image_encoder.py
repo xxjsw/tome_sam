@@ -243,12 +243,13 @@ class EfficientAttention(Attention):
         C = _ // self.num_heads
 
         x = x.reshape(B, H*W, -1)
+
         # token merging on x
         x_merge, x_unmerge = Callable, Callable
         if self.tome_setting.mode == 'tomesd':
             generator = None
             if not self.tome_setting.params.no_rand:
-                generator = torch.Generator().manual_seed(42)
+                generator = torch.Generator(device=x.device).manual_seed(42)
 
             x_merge, x_unmerge = bipartite_soft_matching_random2d(
                 metric=x, w=W, h=H,
@@ -259,7 +260,7 @@ class EfficientAttention(Attention):
             )
 
         if self.tome_setting.mode == 'tome25':
-            generator = torch.Generator().manual_seed(42)
+            generator = torch.Generator(device=x.device).manual_seed(42)
             x_merge, x_unmerge = random_25_bipartite_soft_matching(
                 metric=x, r=int(H * W * self.tome_setting.params.r),
                 generator=generator,

@@ -242,7 +242,9 @@ class EfficientAttention(Attention):
         B, H, W, _ = x.shape
         C = _ // self.num_heads
 
-        x = x.reshape(B, H*W, -1)
+        x = x.reshape(B, H*W, -1) # (B, N, C * nHeads)
+        # max aggregation over multiple heads to reduce dimensions for similarity comparison
+        metric = aggregare_over_head(x, self.num_heads, option='max')
 
         # token merging on x
         x_merge, x_unmerge = Callable, Callable
@@ -252,7 +254,7 @@ class EfficientAttention(Attention):
                 generator = torch.Generator(device=x.device).manual_seed(42)
 
             x_merge, x_unmerge = bipartite_soft_matching_random2d(
-                metric=x, w=W, h=H,
+                metric=metric, w=W, h=H,
                 r=int(H * W * self.tome_setting.params.r),
                 sx=self.tome_setting.params.sx, sy=self.tome_setting.params.sy,
                 no_rand=self.tome_setting.params.no_rand,
@@ -262,18 +264,18 @@ class EfficientAttention(Attention):
         if self.tome_setting.mode == 'tome25':
             generator = torch.Generator(device=x.device).manual_seed(42)
             x_merge, x_unmerge = random_25_bipartite_soft_matching(
-                metric=x, r=int(H * W * self.tome_setting.params.r),
+                metric=metric, r=int(H * W * self.tome_setting.params.r),
                 generator=generator,
             )
 
         if self.tome_setting.mode == 'tome':
             x_merge, x_unmerge = bipartite_soft_matching(
-                metric=x, r=int(H * W * self.tome_setting.params.r),
+                metric=metric, r=int(H * W * self.tome_setting.params.r),
             )
 
         if self.tome_setting.mode == 'pitome':
             x_merge, x_unmerge = pitome_vision(
-                metric=x, ratio=self.tome_setting.params.r,
+                metric=metric, ratio=self.tome_setting.params.r,
                 margin=torch.tensor(self.tome_setting.params.margin),
                 alpha=self.tome_setting.params.alpha,
             )
@@ -306,6 +308,30 @@ class EfficientAttention(Attention):
 
         return x
 
+def aggregare_over_head(x: torch.Tensor, num_heads: int, option: str=None) -> torch.Tensor:
+    """
+    Aggregates over multiple heads
+    Args:
+        x(tensor): input tokens with [B, N, C*num_heads]
+        num_heads(int): number of heads
+        option: how to aggregate over heads
+
+    Returns:
+        tensor: aggregated tokens with [B, N, C]
+    """
+    B, N, _ = x.shape
+    metric = x.view(B, N, num_heads, -1)
+
+    if option == 'max':
+        metric = metric.max(dim=2).values
+    elif option == 'mean':
+        metric = metric.mean(dim=2)
+    elif option == 'sum':
+        metric = metric.sum(dim=2)
+    else:
+        metric = x
+
+    return metric
 
 def window_partition(x: torch.Tensor, window_size: int) -> Tuple[torch.Tensor, Tuple[int, int]]:
     """

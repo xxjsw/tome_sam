@@ -243,8 +243,8 @@ class EfficientAttention(Attention):
         C = _ // self.num_heads
 
         x = x.reshape(B, H*W, -1) # (B, N, C * nHeads)
-        # max aggregation over multiple heads to reduce dimensions for similarity comparison
-        metric = aggregare_over_head(x, self.num_heads, option='max')
+        # mean aggregation over multiple heads to reduce dimensions for similarity comparison
+        metric = aggregare_over_head(x, self.num_heads, option='mean')
 
         # token merging on x
         x_merge, x_unmerge = Callable, Callable

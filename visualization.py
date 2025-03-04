@@ -6,12 +6,11 @@ import cv2
 import torch
 import numpy as np
 from matplotlib import pyplot as plt, patches
-from skimage import io
-
+from skimage import io, measure
 
 from tome_sam.build_tome_sam import tome_sam_model_registry
 from tome_sam.utils import misc
-from tome_sam.utils.tome_presets import SAMToMeSetting, ToMeConfig, PiToMe, ToMe
+from tome_sam.utils.tome_presets import SAMToMeSetting, ToMeConfig, PiToMe, ToMe, ToMeSD
 import torch.nn.functional as F
 
 import warnings
@@ -29,30 +28,49 @@ class VisualizeArgs:
     input_size: List[int]
     tome_setting: Optional[SAMToMeSetting] = None
 
-def plot_image_mask_bbox(image, mask, bounding_box, save_path='output.png'):
+def plot_image_mask_bbox(image, pred_mask, gt_mask, bounding_box, save_path='output.png'):
     """
     Visualize an image with an overlayed mask and bounding box
     Args:
         image(torch.Tensor): (3, H, W)
-        mask(torch.Tensor): (1, H, W), with boolean values
+        pred_mask(torch.Tensor): (1, H, W), with boolean values
+        gt_mask(torch.Tensor): (1, H, W), with boolean values
         bounding_box(torch.Tensor): (1, 4), [x_min, y_min, x_max, y_max]
         save_path: path to save the output image
     """
     image = image.permute(1, 2, 0).numpy().astype(np.uint8)
-    mask = mask.squeeze(0).numpy()
+    pred_mask = pred_mask.squeeze(0).numpy()
+    gt_mask = gt_mask.squeeze(0).numpy()
     bbox = bounding_box.squeeze(0).numpy()
 
     fig, ax = plt.subplots(figsize=(8, 8))
+
+    # overlay masks
     ax.imshow(image)
-    ax.imshow(mask, cmap='gray', alpha=0.5)
+    ax.imshow(pred_mask, cmap='Reds', alpha=0.2)
+    ax.imshow(gt_mask, cmap='Greens', alpha=0.2)
+
+    pred_contours = measure.find_contours(pred_mask, 0.5)
+    gt_contours = measure.find_contours(gt_mask, 0.5)
+
+    # draw contours
+    for contour in pred_contours:
+        ax.plot(contour[:, 1], contour[:, 0], 'red', linewidth=1, label='pred_mask')
+
+    for contour in gt_contours:
+        ax.plot(contour[:, 1], contour[:, 0], 'green', linewidth=1, label='gt_mask')
+
+    # bounding boxes
     x_min, y_min, x_max, y_max = bbox
     bbox_rect = patches.Rectangle(
         (x_min, y_min), x_max - x_min, y_max - y_min,
         linewidth=3, edgecolor='b', facecolor='none'
     )
     ax.add_patch(bbox_rect)
+
     ax.set_xticks([])
     ax.set_yticks([])
+
     plt.savefig(save_path, bbox_inches='tight', dpi=300)
     plt.close(fig)
     print(f'Segmentation output image saved to {save_path}')
@@ -86,7 +104,7 @@ def visualize_output_mask(args: VisualizeArgs):
 
     # Resize
     image = torch.squeeze(F.interpolate(torch.unsqueeze(im, 0), args.input_size, mode='bilinear'), dim=0)
-    gt_mask = torch.squeeze(F.interpolate(torch.unsqueeze(gt, 0), args.input_size, mode='bilinear'), dim=0)
+    gt_mask = torch.squeeze(F.interpolate(torch.unsqueeze(gt, 0), args.input_size, mode='bilinear'), dim=0) # (1, H, W)
 
     bounding_box = misc.masks_to_boxes(gt_mask[0].unsqueeze(0)) # (1, 4)
 
@@ -96,13 +114,39 @@ def visualize_output_mask(args: VisualizeArgs):
     dict_input['original_size'] = image.shape[1:]
 
     with torch.no_grad():
-        mask = tome_sam([dict_input], multimask_output=False)[0]['masks'][0][0]
+        mask = tome_sam([dict_input], multimask_output=False)[0]['masks'][0] # (1, H, W)
 
-    plot_image_mask_bbox(image, mask, bounding_box, save_path=args.output)
+    m_iou = misc.mask_iou(mask, gt_mask)
+    b_iou = misc.boundary_iou(gt_mask, mask)
+    print(f'Mask IoU: {m_iou}, Boundary IoU: {b_iou}')
+    plot_image_mask_bbox(image, mask, gt_mask, bounding_box, save_path=args.output)
 
 
 
 if __name__ == '__main__':
+    tomesd_setting: SAMToMeSetting = {
+        7: ToMeConfig(
+            mode='tomesd',
+            params=ToMeSD(r=0.5, sx=2, sy=2, no_rand=False)
+        ),
+        8: ToMeConfig(
+            mode='tomesd',
+            params=ToMeSD(r=0.5, sx=2, sy=2, no_rand=False)
+        ),
+        9: ToMeConfig(
+            mode='tomesd',
+            params=ToMeSD(r=0.5, sx=2, sy=2, no_rand=False)
+        ),
+        10: ToMeConfig(
+            mode='tomesd',
+            params=ToMeSD(r=0.5, sx=2, sy=2, no_rand=False)
+        ),
+        11: ToMeConfig(
+            mode='tomesd',
+            params=ToMeSD(r=0.5, sx=2, sy=2, no_rand=False)
+        ),
+    }
+
     tome_setting: SAMToMeSetting = {
         7: ToMeConfig(
             mode='tome',
@@ -125,15 +169,62 @@ if __name__ == '__main__':
             params=ToMe(r=0.5)
         ),
     }
+
+    tome25_setting: SAMToMeSetting = {
+        7: ToMeConfig(
+            mode='tome25',
+            params=ToMe(r=0.5)
+        ),
+        8: ToMeConfig(
+            mode='tome25',
+            params=ToMe(r=0.5)
+        ),
+        9: ToMeConfig(
+            mode='tome25',
+            params=ToMe(r=0.5)
+        ),
+        10: ToMeConfig(
+            mode='tome25',
+            params=ToMe(r=0.5)
+        ),
+        11: ToMeConfig(
+            mode='tome25',
+            params=ToMe(r=0.5)
+        ),
+    }
+
+    pitome_setting: SAMToMeSetting = {
+        7: ToMeConfig(
+            mode='pitome',
+            params=PiToMe(r=0.5, margin=0.0, alpha=1.0)
+        ),
+        8: ToMeConfig(
+            mode='pitome',
+            params=PiToMe(r=0.5, margin=0.0, alpha=1.0)
+        ),
+        9: ToMeConfig(
+            mode='pitome',
+            params=PiToMe(r=0.5, margin=0.0, alpha=1.0)
+        ),
+        10: ToMeConfig(
+            mode='pitome',
+            params=PiToMe(r=0.5, margin=0.0, alpha=1.0)
+        ),
+        11: ToMeConfig(
+            mode='pitome',
+            params=PiToMe(r=0.5, margin=0.0, alpha=1.0)
+        ),
+    }
+
     args = VisualizeArgs(
-        input_image='data/DIS5K/DIS-VD/im/2#Aircraft#4#Helicopter#86789665_650b94b2ee_o.jpg',
-        input_mask='data/DIS5K/DIS-VD/gt/2#Aircraft#4#Helicopter#86789665_650b94b2ee_o.png',
-        output='output.png',
+        input_image='data/DIS5K/DIS-VD/im/11#Furniture#17#Table#49706461457_de5227b966_o.jpg',
+        input_mask='data/DIS5K/DIS-VD/gt/11#Furniture#17#Table#49706461457_de5227b966_o.png',
+        output='output_pitome.png',
         model_type="vit_b",
         checkpoint="checkpoints/sam_vit_b_01ec64.pth",
         seed=42,
         input_size=[1024, 1024],
-        tome_setting=None,
+        tome_setting=pitome_setting,
     )
 
     visualize_output_mask(args)

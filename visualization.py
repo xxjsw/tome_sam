@@ -58,13 +58,13 @@ def plot_image_mask_bbox(image, pred_mask, gt_mask, bounding_box, save_path='out
         ax.plot(contour[:, 1], contour[:, 0], 'red', linewidth=1, label='pred_mask')
 
     for contour in gt_contours:
-        ax.plot(contour[:, 1], contour[:, 0], 'green', linewidth=1, label='gt_mask')
+        ax.plot(contour[:, 1], contour[:, 0], 'darkgreen', linewidth=1, label='gt_mask')
 
     # bounding boxes
     x_min, y_min, x_max, y_max = bbox
     bbox_rect = patches.Rectangle(
         (x_min, y_min), x_max - x_min, y_max - y_min,
-        linewidth=3, edgecolor='b', facecolor='none'
+        linewidth=2, edgecolor='black', facecolor='none'
     )
     ax.add_patch(bbox_rect)
 

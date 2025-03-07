@@ -55,7 +55,7 @@ def get_sam_config(model_type: str) -> SAMImageEncoderConfig:
 
 
 @dataclass
-class ToMe: # settings required to do tome or tome25
+class ToMe: # settings required to do tome, tome25 or grad_tome
     r: float  # Ratio of tokens to be merged
 
 @dataclass
@@ -73,7 +73,7 @@ class PiToMe: # settings required to do pitome
 
 @dataclass
 class ToMeConfig:
-    mode: Literal['tome', 'pitome', 'tomesd', 'tome25']
+    mode: Literal['tome', 'pitome', 'tomesd', 'tome25', 'grad_tome']
     params: Union[ToMe, PiToMe, ToMeSD]
 
 

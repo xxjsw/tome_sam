@@ -77,7 +77,7 @@ def do_nothing(x, mode=None):
 
 
 def grad_bipartite_soft_matching(metric: torch.Tensor,
-                                 r: int = 0): # r - number of tokens to remove
+                                 r: int = 0) -> Tuple[Callable, Callable]: # r - number of tokens to remove
     gather = mps_gather_workaround if metric.device.type == "mps" else torch.gather
 
     with torch.no_grad():

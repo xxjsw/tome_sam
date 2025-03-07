@@ -32,7 +32,7 @@ def pitome(
         metric=None,
         indices: torch.Tensor = None,
         scores: torch.Tensor = None,
-        r: int = None
+        r: int = 0,
 ) -> Tuple[Callable, Callable]:
     gather = mps_gather_workaround if metric.device.type == "mps" else torch.gather
     B, T, T = scores.shape
@@ -99,7 +99,6 @@ def pitome_bsm(
         src_idx = edge_idx[..., :r, :]  # Merged Tokens
         dst_idx = gather(node_idx[..., None], dim=-2, index=src_idx)
 
-
     def merge(x: torch.Tensor, mode="mean") -> Tuple[torch.Tensor, torch.Tensor]:
         src, dst = x[batch_idx, a_idx, :], x[batch_idx, b_idx, :]
         n, t1, c = src.shape
@@ -137,7 +136,7 @@ def pitome_bsm(
 def pitome_vision(
         metric: torch.Tensor,
         ratio: float = 0, # ratio of tokens to be merged
-        margin: torch.Tensor = 0.5, # for thresholding energy score #TODO: different margins among [0, 1]
+        margin: torch.Tensor = 0.5, # for thresholding energy score
         alpha=1.0, # for ELU activation
         use_bsm_pitome=False,
 ):
@@ -151,8 +150,8 @@ def pitome_vision(
         # calculate energy score
         metric = F.normalize(metric, p=2, dim=-1)
         sim = metric @ metric.transpose(-1, -2)
-        energy_score = F.elu((sim - margin), alpha=alpha).mean(dim=-1)
-        indices = torch.argsort(energy_score, descending=True)
+        energy_score = F.elu((sim - margin), alpha=alpha).mean(dim=-1) # (B, T)
+        indices = torch.argsort(energy_score, descending=True) # (B, T)
         # seperate protected token and mergeable tokens
         if use_bsm_pitome:
             return pitome_bsm(metric=metric, indices=indices, scores=sim, r=r)

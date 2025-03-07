@@ -11,6 +11,7 @@ import torch.nn.functional as F
 
 from typing import Optional, Tuple, Type, Dict
 
+from .tome_algo.grad_tome.grad_tome import grad_bipartite_soft_matching
 from .tome_algo.tomesd.merge import bipartite_soft_matching_random2d, random_25_bipartite_soft_matching
 from .tome_algo.tome.merge import bipartite_soft_matching
 from segment_anything.modeling.image_encoder import Attention, ImageEncoderViT
@@ -270,6 +271,11 @@ class EfficientAttention(Attention):
 
         if self.tome_setting.mode == 'tome':
             x_merge, x_unmerge = bipartite_soft_matching(
+                metric=metric, r=int(H * W * self.tome_setting.params.r),
+            )
+
+        if self.tome_setting.mode == 'grad_tome':
+            x_merge, x_unmerge = grad_bipartite_soft_matching(
                 metric=metric, r=int(H * W * self.tome_setting.params.r),
             )
 

@@ -74,7 +74,7 @@ def generate_src_and_dst_idx(grad: torch.Tensor,
     and the left ones as src tokens.
 
     Args:
-        grad: records gradient magnitude for each cell (B, H, W)
+        grad: records gradient magnitude for each input token (B, H, W)
         sx: stride in the x dimension for choosing dst
         sy: stride in the y dimension for choosing dst
 

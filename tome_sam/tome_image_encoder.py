@@ -206,6 +206,7 @@ class Block(nn.Module):
 
         self.window_size = window_size
 
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         shortcut = x
         x = self.norm1(x)
@@ -237,7 +238,7 @@ class EfficientAttention(Attention):
         super().__init__(dim, num_heads, qkv_bias, use_rel_pos, rel_pos_zero_init, input_size)
         self.tome_setting = tome_setting
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, merge_operations=None) -> torch.Tensor:
         # x - (B, H, W, C * nHeads)
         B, H, W, _ = x.shape
         C = _ // self.num_heads
@@ -248,7 +249,7 @@ class EfficientAttention(Attention):
         x_merge, x_unmerge = Callable, Callable
 
         # mean aggregation over multiple heads to reduce dimensions for similarity comparison
-        metric = aggregare_over_head(x, self.num_heads, option='mean')
+        metric = aggregate_over_head(x, self.num_heads, option='mean')
         if self.tome_setting.mode == 'tomesd':
             generator = None
             if not self.tome_setting.params.no_rand:
@@ -313,7 +314,7 @@ class EfficientAttention(Attention):
 
         return x
 
-def aggregare_over_head(x: torch.Tensor, num_heads: int, option: str=None) -> torch.Tensor:
+def aggregate_over_head(x: torch.Tensor, num_heads: int, option: str=None) -> torch.Tensor:
     """
     Aggregates over multiple heads
     Args:

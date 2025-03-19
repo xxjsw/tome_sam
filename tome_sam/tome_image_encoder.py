@@ -52,7 +52,6 @@ class ToMeImageEncoderViT(ImageEncoderViT):
             window_size: int = 0,
             global_attn_indexes: Tuple[int, ...] = (),
             tome_setting: Optional[SAMToMeSetting] = None,
-            merging_operations: Optional[Tuple[Callable, Callable]] = None,
     ) -> None:
         """
         Args:

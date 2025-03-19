@@ -48,7 +48,9 @@ def get_sobel_gradient(x: torch.Tensor) -> torch.Tensor:
     grad_x = F.conv2d(x, sobel_x, padding=1, groups=C)  # (B, C, H, W)
     grad_y = F.conv2d(x, sobel_y, padding=1, groups=C)  # (B, C, H, W)
 
-    grad_mag = torch.sqrt(grad_x ** 2 + grad_y ** 2).mean(dim=1)  # (B, H, W)
+    # grad_mag = torch.sqrt(grad_x ** 2 + grad_y ** 2).mean(dim=1)  # (B, H, W)
+    grad_mag = torch.sqrt((grad_x ** 2 + grad_y ** 2).mean(dim=1)) # (B, H, W) # L2
+    # print(grad_mag[0].max(), grad_mag[0].min(), grad_mag[0].mean())
 
     return grad_mag
 

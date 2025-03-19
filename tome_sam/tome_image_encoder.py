@@ -11,7 +11,7 @@ import torch.nn.functional as F
 
 from typing import Optional, Tuple, Type, Dict
 
-from .tome_algo.grad_tome.grad_tome import grad_bipartite_soft_matching
+from .tome_algo.grad_tome.merge import grad_bipartite_soft_matching
 from .tome_algo.tomesd.merge import bipartite_soft_matching_random2d, random_25_bipartite_soft_matching
 from .tome_algo.tome.merge import bipartite_soft_matching
 from segment_anything.modeling.image_encoder import Attention, ImageEncoderViT
@@ -52,6 +52,7 @@ class ToMeImageEncoderViT(ImageEncoderViT):
             window_size: int = 0,
             global_attn_indexes: Tuple[int, ...] = (),
             tome_setting: Optional[SAMToMeSetting] = None,
+            merging_operations: Optional[Tuple[Callable, Callable]] = None,
     ) -> None:
         """
         Args:
@@ -70,7 +71,7 @@ class ToMeImageEncoderViT(ImageEncoderViT):
             rel_pos_zero_init (bool): If True, zero initialize relative positional parameters.
             window_size (int): Window size for window attention blocks.
             global_attn_indexes (list): Indexes for blocks using global attention.
-            tome_setting(Dict[int, ViTToMe]): specify which layers to do token merging and the specific bsm tomesd parameters
+            tome_setting(Dict[int, ViTToMe]): specify which layers to do token merging with specified parameters
         """
         super().__init__()
         self.img_size = img_size
@@ -193,7 +194,7 @@ class Block(nn.Module):
             )
         else:
             self.attn = Attention(
-                dim,
+                dim=dim,
                 num_heads=num_heads,
                 qkv_bias=qkv_bias,
                 use_rel_pos=use_rel_pos,
@@ -223,7 +224,6 @@ class Block(nn.Module):
         return x
 
 
-
 class EfficientAttention(Attention):
     def __init__(
             self,
@@ -244,11 +244,12 @@ class EfficientAttention(Attention):
         C = _ // self.num_heads
 
         x = x.reshape(B, H*W, -1) # (B, N, C * nHeads)
-        # mean aggregation over multiple heads to reduce dimensions for similarity comparison
-        metric = aggregare_over_head(x, self.num_heads, option='mean')
 
         # token merging on x
         x_merge, x_unmerge = Callable, Callable
+
+        # mean aggregation over multiple heads to reduce dimensions for similarity comparison
+        metric = aggregare_over_head(x, self.num_heads, option='mean')
         if self.tome_setting.mode == 'tomesd':
             generator = None
             if not self.tome_setting.params.no_rand:
@@ -298,7 +299,6 @@ class EfficientAttention(Attention):
 
         attn = (q * self.scale) @ k.transpose(-2, -1)
 
-        # TODO: Double check its correctness
         if self.use_rel_pos:
             attn = add_decomposed_rel_pos(attn, q, merged_indices,
                                           self.rel_pos_h, self.rel_pos_w, (H, W), (H, W))

@@ -19,6 +19,8 @@ from tome_sam.utils.tome_presets import SAMToMeSetting
 import warnings
 warnings.filterwarnings("ignore")
 
+import pandas as pd
+
 
 def compute_iou_and_boundary_iou(preds, target) -> Tuple[torch.Tensor, torch.Tensor]:
     """
@@ -122,16 +124,15 @@ def evaluate(args: EvaluateArgs = None):
         with torch.no_grad():
             # batched output - list([dict(['masks', 'iou_predictions', 'low_res_logits'])])
             # masks - (image=1, masks per image, H, W)
-            t_start = time.time()
             batched_output = tome_sam(batched_input, multimask_output=False)
-            img_per_sec = round(len(batched_input)/(time.time() - t_start), 2)
 
         pred_masks = torch.tensor(np.array([output['masks'][0].cpu() for
                                             output in batched_output])).float().to(device)
         mask_iou, boundary_iou = compute_iou_and_boundary_iou(pred_masks, labels_ori)
-        loss_dict = {"mask_iou": mask_iou, "boundary_iou": boundary_iou, "im/s": img_per_sec}
+        loss_dict = {"mask_iou": mask_iou, "boundary_iou": boundary_iou}
         loss_dict_reduced = misc.reduce_dict(loss_dict)
         metric_logger.update(**loss_dict_reduced)
+
 
     print('============================')
     metric_logger.synchronize_between_processes()
@@ -147,6 +148,7 @@ def evaluate(args: EvaluateArgs = None):
                 'result': test_stats,
                 'evaluate_args': convert_to_serializable_dict(args)
             }, f, indent=4, default=str)
+
 
     return test_stats
 

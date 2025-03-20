@@ -1,6 +1,5 @@
-from dataclasses import dataclass
 from functools import partial
-from typing import Optional, List
+from typing import Optional
 
 
 import torch

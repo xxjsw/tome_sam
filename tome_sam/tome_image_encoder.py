@@ -238,7 +238,7 @@ class EfficientAttention(Attention):
         super().__init__(dim, num_heads, qkv_bias, use_rel_pos, rel_pos_zero_init, input_size)
         self.tome_setting = tome_setting
 
-    def forward(self, x: torch.Tensor, merge_operations=None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x - (B, H, W, C * nHeads)
         B, H, W, _ = x.shape
         C = _ // self.num_heads

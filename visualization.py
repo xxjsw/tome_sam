@@ -2,11 +2,13 @@ import random
 from dataclasses import dataclass
 from typing import Optional, List
 
+import cv2
 import torch
 import numpy as np
 from matplotlib import pyplot as plt, patches
 from skimage import io, measure
 
+from segment_anything import SamAutomaticMaskGenerator
 from tome_sam.build_tome_sam import tome_sam_model_registry
 from tome_sam.utils import misc
 from tome_sam.utils.tome_presets import SAMToMeSetting, ToMeConfig, PiToMe, ToMe, ToMeSD
@@ -75,8 +77,54 @@ def plot_image_mask_bbox(image, pred_mask, gt_mask, bounding_box, save_path='out
     print(f'Segmentation output image saved to {save_path}')
 
 
+def show_anns(anns):
+    if len(anns) == 0:
+        return
+    sorted_anns = sorted(anns, key=(lambda x: x['area']), reverse=True)
+    ax = plt.gca()
+    ax.set_autoscale_on(False)
 
-def visualize_output_mask(args: VisualizeArgs, original_resolution=True):
+    img = np.ones((sorted_anns[0]['segmentation'].shape[0], sorted_anns[0]['segmentation'].shape[1], 4))
+    img[:,:,3] = 0
+    for ann in sorted_anns:
+        m = ann['segmentation']
+        color_mask = np.concatenate([np.random.random(3), [0.35]])
+        img[m] = color_mask
+    ax.imshow(img)
+
+
+def visualize_automatic_mask_generator(args: VisualizeArgs, original_resolution=False):
+    seed = args.seed
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
+    tome_sam = tome_sam_model_registry[args.model_type](
+        checkpoint=args.checkpoint,
+        tome_setting=args.tome_setting,
+    )
+
+    mask_generator = SamAutomaticMaskGenerator(model=tome_sam,
+                                               points_per_side=32,
+                                                pred_iou_thresh=0.86,
+                                                stability_score_thresh=0.92,
+                                                crop_n_layers=1,
+                                                crop_n_points_downscale_factor=2,
+                                                min_mask_region_area=100)
+    image = cv2.imread(args.input_image)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    masks = mask_generator.generate(image)
+    fig = plt.figure(figsize=(20, 20))
+    plt.imshow(image)
+    show_anns(masks)
+    plt.axis('off')
+    plt.savefig(args.output, bbox_inches='tight', dpi=300)
+    plt.close(fig)
+
+
+
+
+def visualize_output_mask(args: VisualizeArgs, original_resolution=False):
     seed = args.seed
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -203,12 +251,13 @@ if __name__ == '__main__':
     args = VisualizeArgs(
         input_image='data/DIS5K/DIS-VD/im/11#Furniture#17#Table#49706461457_de5227b966_o.jpg',
         input_mask='data/DIS5K/DIS-VD/gt/11#Furniture#17#Table#49706461457_de5227b966_o.png',
-        output='output_sam.png',
+        output='automatic_mask_generator.png',
         model_type="vit_b",
         checkpoint="checkpoints/sam_vit_b_01ec64.pth",
         seed=42,
         input_size=[1024, 1024],
-        tome_setting=grad_tome_setting,
+        tome_setting=None,
     )
 
     visualize_output_mask(args)
+    # visualize_automatic_mask_generator(args)

@@ -76,7 +76,7 @@ def plot_image_mask_bbox(image, pred_mask, gt_mask, bounding_box, save_path='out
 
 
 
-def visualize_output_mask(args: VisualizeArgs):
+def visualize_output_mask(args: VisualizeArgs, original_resolution=True):
     seed = args.seed
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -114,16 +114,18 @@ def visualize_output_mask(args: VisualizeArgs):
     dict_input['original_size'] = resized_im.shape[1:]
 
     with torch.no_grad():
-        mask = tome_sam([dict_input], multimask_output=False)[0]['masks'][0] # (1, H, W)
+        resized_mask = tome_sam([dict_input], multimask_output=False)[0]['masks'][0] # (1, H, W)
 
     # evaluation on original resolution
-    mask = torch.squeeze(F.interpolate(torch.unsqueeze(mask.float(), 0), [original_H, original_W], mode='bilinear'), dim=0)
+    mask = torch.squeeze(F.interpolate(torch.unsqueeze(resized_mask.float(), 0), [original_H, original_W], mode='bilinear'), dim=0)
     bounding_box = misc.masks_to_boxes(gt[0].unsqueeze(0))
     m_iou = misc.mask_iou(mask, gt)
     b_iou = misc.boundary_iou(gt, mask)
     print(f'Mask IoU: {m_iou}, Boundary IoU: {b_iou}')
-    plot_image_mask_bbox(im, mask, gt, bounding_box, save_path=args.output)
-
+    if original_resolution:
+        plot_image_mask_bbox(im, mask, gt, bounding_box, save_path=args.output)
+    else:
+        plot_image_mask_bbox(resized_im, resized_mask, resized_gt, resized_bounding_box, save_path=args.output)
 
 
 if __name__ == '__main__':

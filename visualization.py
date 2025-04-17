@@ -2,7 +2,6 @@ import random
 from dataclasses import dataclass
 from typing import Optional, List
 
-import cv2
 import torch
 import numpy as np
 from matplotlib import pyplot as plt, patches
@@ -100,67 +99,63 @@ def visualize_output_mask(args: VisualizeArgs):
         im = np.repeat(im, 3, axis=2)
     im = torch.tensor(im.copy(), dtype=torch.float32)
     im = torch.transpose(torch.transpose(im, 1, 2), 0, 1) # (3, H, W)
+    _, original_H, original_W = im.shape
     gt = torch.unsqueeze(torch.tensor(gt, dtype=torch.float32), 0) # (1, H, W)
 
     # Resize
-    image = torch.squeeze(F.interpolate(torch.unsqueeze(im, 0), args.input_size, mode='bilinear'), dim=0)
-    gt_mask = torch.squeeze(F.interpolate(torch.unsqueeze(gt, 0), args.input_size, mode='bilinear'), dim=0) # (1, H, W)
+    resized_im = torch.squeeze(F.interpolate(torch.unsqueeze(im, 0), args.input_size, mode='bilinear'), dim=0)
+    resized_gt= torch.squeeze(F.interpolate(torch.unsqueeze(gt, 0), args.input_size, mode='bilinear'), dim=0) # (1, H, W)
 
-    bounding_box = misc.masks_to_boxes(gt_mask[0].unsqueeze(0)) # (1, 4)
+    resized_bounding_box = misc.masks_to_boxes(resized_gt[0].unsqueeze(0)) # (1, 4)
 
     dict_input = dict()
-    dict_input['image'] = image.to(torch.uint8)
-    dict_input['boxes'] = bounding_box
-    dict_input['original_size'] = image.shape[1:]
+    dict_input['image'] = resized_im.to(torch.uint8)
+    dict_input['boxes'] = resized_bounding_box
+    dict_input['original_size'] = resized_im.shape[1:]
 
     with torch.no_grad():
         mask = tome_sam([dict_input], multimask_output=False)[0]['masks'][0] # (1, H, W)
 
-    m_iou = misc.mask_iou(mask, gt_mask)
-    b_iou = misc.boundary_iou(gt_mask, mask)
+    # evaluation on original resolution
+    mask = torch.squeeze(F.interpolate(torch.unsqueeze(mask.float(), 0), [original_H, original_W], mode='bilinear'), dim=0)
+    bounding_box = misc.masks_to_boxes(gt[0].unsqueeze(0))
+    m_iou = misc.mask_iou(mask, gt)
+    b_iou = misc.boundary_iou(gt, mask)
     print(f'Mask IoU: {m_iou}, Boundary IoU: {b_iou}')
-    plot_image_mask_bbox(image, mask, gt_mask, bounding_box, save_path=args.output)
+    plot_image_mask_bbox(im, mask, gt, bounding_box, save_path=args.output)
 
 
 
 if __name__ == '__main__':
     tomesd_setting: SAMToMeSetting = {
-        7: ToMeConfig(
+        2: ToMeConfig(
             mode='tomesd',
-            params=ToMeSD(r=0.5, sx=2, sy=2, no_rand=False)
+            params=ToMeSD(r=0.5, sx=2, sy=2, no_rand=True)
+        ),
+        5: ToMeConfig(
+            mode='tomesd',
+            params=ToMeSD(r=0.5, sx=2, sy=2, no_rand=True)
         ),
         8: ToMeConfig(
             mode='tomesd',
-            params=ToMeSD(r=0.5, sx=2, sy=2, no_rand=False)
-        ),
-        9: ToMeConfig(
-            mode='tomesd',
-            params=ToMeSD(r=0.5, sx=2, sy=2, no_rand=False)
-        ),
-        10: ToMeConfig(
-            mode='tomesd',
-            params=ToMeSD(r=0.5, sx=2, sy=2, no_rand=False)
+            params=ToMeSD(r=0.5, sx=2, sy=2, no_rand=True)
         ),
         11: ToMeConfig(
             mode='tomesd',
-            params=ToMeSD(r=0.5, sx=2, sy=2, no_rand=False)
+            params=ToMeSD(r=0.5, sx=2, sy=2, no_rand=True)
         ),
     }
 
     tome_setting: SAMToMeSetting = {
-        7: ToMeConfig(
+        2: ToMeConfig(
+            mode='tome',
+            params=ToMe(r=0.5)
+        ),
+        5: ToMeConfig(
             mode='tome',
             params=ToMe(r=0.5)
         ),
         8: ToMeConfig(
-            mode='tome',
-            params=ToMe(r=0.5)
-        ),
-        9: ToMeConfig(
-            mode='tome',
-            params=ToMe(r=0.5)
-        ),
-        10: ToMeConfig(
             mode='tome',
             params=ToMe(r=0.5)
         ),
@@ -170,20 +165,23 @@ if __name__ == '__main__':
         ),
     }
 
+    grad_tome_setting: SAMToMeSetting = {
+        11: ToMeConfig(
+            mode='grad_tome',
+            params=ToMe(r=0.7)
+        ),
+    }
+
     tome25_setting: SAMToMeSetting = {
-        7: ToMeConfig(
+        2: ToMeConfig(
+            mode='tome25',
+            params=ToMe(r=0.5)
+        ),
+        5: ToMeConfig(
             mode='tome25',
             params=ToMe(r=0.5)
         ),
         8: ToMeConfig(
-            mode='tome25',
-            params=ToMe(r=0.5)
-        ),
-        9: ToMeConfig(
-            mode='tome25',
-            params=ToMe(r=0.5)
-        ),
-        10: ToMeConfig(
             mode='tome25',
             params=ToMe(r=0.5)
         ),
@@ -194,22 +192,6 @@ if __name__ == '__main__':
     }
 
     pitome_setting: SAMToMeSetting = {
-        7: ToMeConfig(
-            mode='pitome',
-            params=PiToMe(r=0.5, margin=0.0, alpha=1.0)
-        ),
-        8: ToMeConfig(
-            mode='pitome',
-            params=PiToMe(r=0.5, margin=0.0, alpha=1.0)
-        ),
-        9: ToMeConfig(
-            mode='pitome',
-            params=PiToMe(r=0.5, margin=0.0, alpha=1.0)
-        ),
-        10: ToMeConfig(
-            mode='pitome',
-            params=PiToMe(r=0.5, margin=0.0, alpha=1.0)
-        ),
         11: ToMeConfig(
             mode='pitome',
             params=PiToMe(r=0.5, margin=0.0, alpha=1.0)
@@ -219,12 +201,12 @@ if __name__ == '__main__':
     args = VisualizeArgs(
         input_image='data/DIS5K/DIS-VD/im/11#Furniture#17#Table#49706461457_de5227b966_o.jpg',
         input_mask='data/DIS5K/DIS-VD/gt/11#Furniture#17#Table#49706461457_de5227b966_o.png',
-        output='output_pitome.png',
+        output='output_sam.png',
         model_type="vit_b",
         checkpoint="checkpoints/sam_vit_b_01ec64.pth",
         seed=42,
         input_size=[1024, 1024],
-        tome_setting=pitome_setting,
+        tome_setting=grad_tome_setting,
     )
 
     visualize_output_mask(args)

@@ -3,6 +3,7 @@ import torch
 import torch.nn.functional as F
 
 
+# with stride partition, so larger merge rate
 
 def get_central_difference_gradient(x: torch.Tensor) -> torch.Tensor:
     '''
@@ -48,9 +49,9 @@ def get_sobel_gradient(x: torch.Tensor) -> torch.Tensor:
     grad_x = F.conv2d(x, sobel_x, padding=1, groups=C)  # (B, C, H, W)
     grad_y = F.conv2d(x, sobel_y, padding=1, groups=C)  # (B, C, H, W)
 
-    # grad_mag = torch.sqrt(grad_x ** 2 + grad_y ** 2).mean(dim=1)  # (B, H, W)
+    # grad_mag = torch.sqrt(grad_x ** 2 + grad_y ** 2).mean(dim=1)  # (B, H, W) # per-channel
     grad_mag = torch.sqrt((grad_x ** 2 + grad_y ** 2).mean(dim=1)) # (B, H, W) # L2
-    # print(grad_mag[0].max(), grad_mag[0].min(), grad_mag[0].mean())
+
 
     return grad_mag
 
@@ -149,6 +150,7 @@ def grad_bipartite_soft_matching(metric: torch.Tensor,
             grad = get_central_difference_gradient(metric.view(B, H, W, C))  # (B, H, W)
 
         a_idx, b_idx = generate_src_and_dst_idx(grad, sx=sx, sy=sy) # (B, T-num_dst), (B, num_dst)
+
 
         def split(x):
             C = x.shape[-1]
